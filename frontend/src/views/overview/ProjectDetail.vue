@@ -699,13 +699,13 @@ function nameInitial(name?: string) {
           <template v-for="(cycle, cycleIdx) in lifecycleCycles" :key="cycle.cycleName">
             <div class="life-cycle" :class="cycleStatus(cycle.nodes)">
               <div class="cycle-head">
-                <div>
-                  <div class="cycle-kicker">周期 {{ String(cycle.cycleNo).padStart(2, '0') }}</div>
+                <div class="cycle-main-title">
+                  <span class="cycle-kicker">周期 {{ String(cycle.cycleNo).padStart(2, '0') }}</span>
                   <div class="cycle-title">{{ cycle.cycleName }}</div>
                 </div>
                 <div class="cycle-state">
                   <span>{{ cycleStatusText(cycle.nodes) }}</span>
-                  <small>{{ cycleDoneCount(cycle.nodes) }}/{{ cycle.nodes.length }}</small>
+                  <em>{{ cycleDoneCount(cycle.nodes) }}/{{ cycle.nodes.length }}</em>
                 </div>
               </div>
               <div class="cycle-nodes" :class="{ merged: cycle.nodes.length > 1 }">
@@ -1324,7 +1324,7 @@ function nameInitial(name?: string) {
   background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
   border: 1px solid #e6f0ff;
   border-radius: 10px;
-  padding: 18px 20px 20px;
+  padding: 14px 18px 16px;
   margin-bottom: 16px;
   box-shadow: 0 6px 18px rgba(0, 39, 102, 0.04);
 }
@@ -1332,7 +1332,7 @@ function nameInitial(name?: string) {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 .lifecycle-title {
   font-weight: 600;
@@ -1352,17 +1352,17 @@ function nameInitial(name?: string) {
 }
 .life-cycle {
   position: relative;
-  flex: 1 0 236px;
-  min-width: 236px;
+  flex: 1 0 220px;
+  min-width: 220px;
   border: 1px solid #edf1f7;
   border-radius: 12px;
-  padding: 12px;
+  padding: 10px;
   background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 2px 10px rgba(15, 35, 70, 0.04);
 }
 .life-cycle:first-child {
-  flex-basis: 430px;
-  min-width: 430px;
+  flex-basis: 392px;
+  min-width: 392px;
 }
 .life-cycle.done {
   border-color: #d9f7be;
@@ -1378,41 +1378,49 @@ function nameInitial(name?: string) {
 }
 .cycle-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.cycle-main-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
 }
 .cycle-kicker {
   font-size: 12px;
   color: #8c8c8c;
   line-height: 1;
-  margin-bottom: 6px;
+  white-space: nowrap;
 }
 .cycle-title {
   font-size: 15px;
   font-weight: 600;
   color: #1f1f1f;
   line-height: 1.2;
+  white-space: nowrap;
 }
 .cycle-state {
   display: inline-flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
   color: #595959;
+  white-space: nowrap;
 }
 .cycle-state span {
   display: inline-flex;
   align-items: center;
-  height: 24px;
-  padding: 0 10px;
+  height: 22px;
+  padding: 0 9px;
   border-radius: 999px;
   background: #f0f0f0;
   color: #595959;
 }
-.cycle-state small {
+.cycle-state em {
+  font-style: normal;
   color: #8c8c8c;
 }
 .life-cycle.done .cycle-state span {
@@ -1430,10 +1438,10 @@ function nameInitial(name?: string) {
 }
 .cycle-nodes.merged {
   gap: 0;
-  min-height: 92px;
+  min-height: 72px;
   overflow: hidden;
   border: 1px solid #d9f7be;
-  border-radius: 12px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.58);
 }
 .life-node {
@@ -1441,7 +1449,7 @@ function nameInitial(name?: string) {
   min-width: 0;
   border: 1px solid #edf1f7;
   border-radius: 10px;
-  padding: 12px 14px;
+  padding: 10px 12px;
   background: #fafafa;
   cursor: pointer;
   transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
@@ -1468,6 +1476,7 @@ function nameInitial(name?: string) {
   background: transparent;
   box-shadow: none;
   transform: none;
+  padding: 9px 12px;
 }
 .cycle-nodes.merged .life-node + .life-node {
   border-left: 1px solid #d9f7be;
@@ -1482,13 +1491,13 @@ function nameInitial(name?: string) {
   box-shadow: inset 0 0 0 2px rgba(0, 100, 239, 0.75);
 }
 .cycle-nodes.merged .node-head {
-  margin-bottom: 10px;
+  margin-bottom: 6px;
 }
 .node-head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: 7px;
+  margin-bottom: 6px;
 }
 .node-seq {
   font-size: 12px;
