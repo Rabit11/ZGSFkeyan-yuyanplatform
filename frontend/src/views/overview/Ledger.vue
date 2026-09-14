@@ -603,7 +603,7 @@ onMounted(async () => {
       <div>
         <h2 class="page-title">项目台账</h2>
         <div class="page-desc">
-          当前权限范围内项目全景摘要：身份、专业、状态、四色预警、里程碑、经费、交付协作与下一节点。点击行进入全生命周期详情。
+          按渠道、状态和专业筛选项目，点击项目名称查看全生命周期信息。
         </div>
       </div>
       <a-space>
@@ -616,7 +616,7 @@ onMounted(async () => {
       </a-space>
     </div>
 
-    <WorkDutyBar code="ledger" :project="form" />
+    <details class="duty-disclosure"><summary>岗位职责与操作权限<span>展开查看</span></summary><WorkDutyBar code="ledger" :project="form" /></details>
 
     <div v-if="roleNotice" class="role-notice" :class="roleNotice.tone">
       <span class="role-notice-text">{{ roleNotice.text }}</span>
@@ -650,20 +650,21 @@ onMounted(async () => {
     </div>
 
     <a-card class="ledger-card" :body-style="{ padding: '16px 20px 12px' }">
+      <div class="filter-heading"><strong>筛选项目</strong><span>筛选即时生效</span></div>
       <div class="toolbar">
         <div class="filter-bar">
-          <a-input v-model:value="query.keyword" placeholder="项目名称 / 编号" allow-clear style="width: 210px">
+          <a-input v-model:value="query.keyword" aria-label="项目名称或编号" placeholder="项目名称 / 编号" allow-clear style="width: 210px">
             <template #prefix><SearchOutlined /></template>
           </a-input>
           <a-select
-            v-model:value="query.levelCode"
+            v-model:value="query.levelCode" aria-label="项目层级"
             placeholder="全部层级"
             allow-clear
             style="width: 116px"
             :options="withAllOption(dictStore.options('PROJECT_LEVEL'))"
           />
           <a-select
-            v-model:value="query.channelId"
+            v-model:value="query.channelId" aria-label="来源渠道"
             placeholder="全部渠道"
             allow-clear
             show-search
@@ -672,21 +673,21 @@ onMounted(async () => {
             :options="withAllOption(channelOptions)"
           />
           <a-select
-            v-model:value="query.bureauOffice"
+            v-model:value="query.bureauOffice" aria-label="司局或处室"
             placeholder="全部司局/处室"
             allow-clear
             style="width: 150px"
             :options="withAllOption(officeOptions.map((value) => ({ value, label: value })))"
           />
           <a-select
-            v-model:value="query.projectType"
+            v-model:value="query.projectType" aria-label="项目类型"
             placeholder="全部项目类型"
             allow-clear
             style="width: 140px"
             :options="withAllOption(typeOptions.map((value) => ({ value, label: value })))"
           />
           <a-select
-            v-model:value="query.major1"
+            v-model:value="query.major1" aria-label="一级专业"
             placeholder="全部一级专业"
             allow-clear
             show-search
@@ -694,7 +695,7 @@ onMounted(async () => {
             :options="withAllOption(majorConfig.major1.map((value) => ({ value, label: value })))"
           />
           <a-select
-            v-model:value="query.major2"
+            v-model:value="query.major2" aria-label="二级专业"
             placeholder="全部二级专业"
             allow-clear
             show-search
@@ -703,21 +704,21 @@ onMounted(async () => {
           />
           <a-select
             v-if="!isTeam"
-            v-model:value="query.orgId"
+            v-model:value="query.orgId" aria-label="所属单位"
             placeholder="全部单位"
             allow-clear
             style="width: 170px"
             :options="withAllOption(orgOptions)"
           />
           <a-select
-            v-model:value="query.status"
+            v-model:value="query.status" aria-label="项目状态"
             placeholder="全部状态"
             allow-clear
             style="width: 120px"
             :options="withAllOption(STATUS_FILTER)"
           />
           <a-select
-            v-model:value="query.warnColor"
+            v-model:value="query.warnColor" aria-label="风险预警"
             placeholder="全部预警"
             allow-clear
             style="width: 160px"
@@ -1038,7 +1039,7 @@ onMounted(async () => {
 
 <style scoped>
 .ledger-page {
-  min-width: 980px;
+  min-width: 0;
 }
 .page-heading {
   display: flex;
@@ -1153,7 +1154,7 @@ onMounted(async () => {
   background: #f0f7ff !important;
 }
 .ledger-table :deep(.ant-table-thead > tr > th),
-.ledger-table :deep(.ant-table-tbody > tr > td) {
+.ledger-table :deep(.ant-table-tbody > tr:not(.ant-table-measure-row) > td) {
   height: 55px;
 }
 .ledger-table :deep(.ant-table-cell-fix-left) {
@@ -1301,4 +1302,33 @@ onMounted(async () => {
     overflow-x: auto;
   }
 }
+
+/* Compact object workspace, scoped to the project ledger. */
+.ledger-page { color:#24364b; }
+.page-heading { margin-bottom:16px; align-items:center; }
+.page-desc { color:#687b8f; font-size:13px; line-height:1.6; }
+.duty-disclosure { margin-bottom:12px;border:1px solid #e1e7ef;border-radius:6px;background:#fff; }
+.duty-disclosure summary { padding:10px 14px;cursor:pointer;font-size:13px;color:#40546b; }
+.duty-disclosure summary span { float:right;color:#75879a;font-size:12px; }
+.duty-disclosure[open] summary { border-bottom:1px solid #edf1f6; }
+.role-notice.orange,.role-notice.blue { color:#40546b;background:#fff;border-color:#e1e7ef;border-radius:6px;padding:8px 12px; }
+.source-tabs { background:#f2f5f9;border:0; }
+.source-tab.active { background:#e5efff;color:#075bb6;font-weight:600; }
+.source-tab:focus-visible { outline:2px solid #1677ff;outline-offset:2px; }
+.ledger-card { border-color:#e1e7ef;border-radius:6px; }
+.filter-heading { display:flex;align-items:center;gap:12px;margin-bottom:12px;font-size:13px; }
+.filter-heading span { color:#75879a;font-size:12px; }
+.toolbar { align-items:flex-start; }
+.filter-bar { display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;min-width:0; }
+.filter-bar :deep(.ant-select),.filter-bar :deep(.ant-input-affix-wrapper) { width:100% !important;min-width:0; }
+.filter-bar > :first-child { grid-column:span 2; }
+.summary-bar { flex-wrap:wrap;gap:8px 12px;min-height:42px;background:#f5f8fc;border:0;margin-bottom:10px; }
+.summary-bar strong { font-size:16px; }
+.ledger-table :deep(.ant-table-thead > tr > th) { background:#f3f6fa;color:#41556b;font-size:13px;height:44px; }
+.ledger-table :deep(.ant-table-cell) { padding:10px 12px; }
+.ledger-table :deep(.ant-table-measure-row),.ledger-table :deep(.ant-table-measure-row > td) { height:0 !important;min-height:0 !important;padding:0 !important;line-height:0 !important;border:0 !important; }
+@media(min-width:1600px){.filter-bar{grid-template-columns:repeat(7,minmax(0,1fr));}}
+@media(max-width:1050px){.filter-bar{grid-template-columns:repeat(3,minmax(0,1fr));}.summary-spacer{display:none}.page-heading{flex-wrap:wrap}}
+@media(max-width:650px){.toolbar{flex-wrap:wrap}.filter-bar{grid-template-columns:repeat(2,minmax(0,1fr));flex-basis:100%}.source-tabs{flex-wrap:wrap}}
+
 </style>

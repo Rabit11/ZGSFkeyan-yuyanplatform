@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import dayjs from 'dayjs'
 import { message, Modal } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { fileApi, milestoneApi, projectApi } from '@/api/modules'
@@ -125,7 +126,7 @@ function todoTagColor(t: MilestoneTodo) {
   if (t.taskType === 'COMPILE') return 'blue'
   if (t.taskType === 'COMPILE_AUDIT') return 'orange'
   if (t.taskType === 'CLOSE_AUDIT') return 'processing'
-  return t.colorStatus === 'RED' ? 'red' : t.colorStatus === 'YELLOW' ? 'orange' : 'processing'
+  return t.status !== 'DONE' && !!t.planDate && dayjs(t.planDate).isBefore(dayjs(), 'day') ? 'red' : t.colorStatus === 'YELLOW' ? 'orange' : 'processing'
 }
 
 function warnText(color?: string) {
@@ -283,7 +284,7 @@ async function removeRow(row: any) {
 </script>
 
 <template>
-  <div class="page-container">
+  <div class="page-container milestone-page">
     <div class="page-head">
       <div>
         <h2 class="page-title">里程碑填报</h2>
@@ -298,7 +299,7 @@ async function removeRow(row: any) {
         <a-button @click="loadBoard">刷新</a-button>
       </a-space>
     </div>
-    <WorkDutyBar code="milestone_compile" :project="dutyProject" />
+    <details class="duty-disclosure"><summary>岗位职责与办理规则<span>展开查看</span></summary><WorkDutyBar code="milestone_compile" :project="dutyProject" /></details>
 
     <a-row :gutter="16" style="margin-bottom: 16px">
       <a-col :span="6"><div class="stat-card"><div class="label">我的待办</div><div class="value">{{ summary.todo || 0 }}</div></div></a-col>
@@ -307,7 +308,7 @@ async function removeRow(row: any) {
       <a-col :span="6"><div class="stat-card warn"><div class="label">临期 / 逾期</div><div class="value">{{ (summary.yellow || 0) + (summary.red || 0) }}</div></div></a-col>
     </a-row>
 
-    <a-card title="我的待办" :body-style="{ padding: '8px 20px 16px' }" style="margin-bottom: 16px">
+    <a-card class="todo-workspace" title="我的待办" :body-style="{ padding: '8px 20px 16px' }" style="margin-bottom: 16px">
       <template #extra>
         <a-input-search v-model:value="keyword" allow-clear placeholder="项目编号 / 名称 / 节点" style="width: 280px" />
       </template>
@@ -320,17 +321,17 @@ async function removeRow(row: any) {
       </a-tabs>
       <a-empty v-if="!filteredTodos.length" description="当前筛选下暂无待办" />
       <div v-else class="todo-grid">
-        <div v-for="(t, i) in filteredTodos" :key="`${t.taskType}-${t.projectId}-${t.milestoneId || i}`" class="todo-card">
+        <div v-for="(t, i) in filteredTodos" :key="`${t.taskType}-${t.projectId}-${t.milestoneId || i}`" class="todo-card" :class="{ overdue: t.status !== 'DONE' && !!t.planDate && dayjs(t.planDate).isBefore(dayjs(), 'day') }">
           <div class="todo-top">
             <a-tag :color="todoTagColor(t)">
               {{ todoTagText(t) }}
             </a-tag>
             <span class="todo-type">{{ t.typeLabel }}</span>
           </div>
-          <div class="todo-name">{{ t.milestoneName }}</div>
-          <div class="todo-meta">项目编号 {{ t.projectNo || '—' }}</div>
-          <div class="todo-meta">计划完成 {{ fmtDate(t.planDate) }} · {{ t.status === 'DONE' ? '已完成' : dueText(t.planDate) }}</div>
-          <div class="todo-meta">交付物 {{ t.materialCount || 0 }}/1 · 负责人 {{ t.ownerName || '—' }}</div>
+          <div class="todo-identity"><div class="todo-name" :title="t.projectName">{{ t.projectName || t.projectNo || '未命名项目' }}</div><div class="todo-node">{{ t.milestoneName }}</div></div>
+          <div class="todo-meta todo-number">项目编号 {{ t.projectNo || '—' }}</div>
+          <div class="todo-meta todo-deadline">计划完成 {{ fmtDate(t.planDate) }} · {{ t.status === 'DONE' ? '已完成' : dueText(t.planDate) }}</div>
+          <div class="todo-meta todo-owner">交付物 {{ t.materialCount || 0 }}/1 · 负责人 {{ t.ownerName || '—' }}</div>
           <div class="todo-actions">
             <a-button v-if="t.taskType === 'COMPILE'" size="small" @click="jumpTo(t, true)">查看</a-button>
             <a-button v-if="t.taskType === 'COMPILE'" type="primary" size="small" @click="jumpTo(t)">编制节点</a-button>
@@ -498,6 +499,38 @@ async function removeRow(row: any) {
   .todo-grid { grid-template-columns: 1fr; }
   .page-head { flex-direction: column; }
 }
-</style>
 
+/* Task rows align status, object identity and actions across projects. */
+.milestone-page { color:#24364b; }
+.page-head { margin-bottom:16px; }
+.page-head > :first-child { min-width:0; }
+.page-head > :deep(.ant-space) { flex-shrink:0;white-space:nowrap; }
+.page-desc { max-width:850px;color:#687b8f;font-size:13px;line-height:1.7; }
+.duty-disclosure { margin-bottom:14px;border:1px solid #e1e7ef;border-radius:6px;background:#fff; }
+.duty-disclosure summary { padding:10px 14px;cursor:pointer;font-size:13px;color:#40546b; }
+.duty-disclosure summary span { float:right;color:#75879a;font-size:12px; }
+.duty-disclosure[open] summary { border-bottom:1px solid #edf1f6; }
+.milestone-page :deep(.stat-card) { padding:14px 18px;border:1px solid #e1e7ef;border-radius:6px;box-shadow:none; }
+.milestone-page :deep(.stat-card .value) { font-size:26px;line-height:1.3; }
+.todo-workspace { border-color:#e1e7ef;border-radius:6px; }
+.todo-workspace :deep(.ant-card-head) { min-height:52px; }
+.todo-workspace :deep(.ant-tabs-nav) { margin-bottom:0; }
+.todo-grid { display:flex;flex-direction:column;gap:0; }
+.todo-card { display:grid;grid-template-columns:minmax(115px,.7fr) minmax(240px,2fr) minmax(190px,1.2fr) auto;column-gap:20px;row-gap:5px;align-items:center;padding:16px 10px;border:0;border-bottom:1px solid #e8edf3;border-radius:0; }
+.todo-card:hover { background:#f6f9fd; }
+.todo-card:last-child { border-bottom:0; }
+.todo-top { grid-column:1;grid-row:1 / 3;flex-direction:column;align-items:flex-start;margin:0;gap:4px; }
+.todo-identity { grid-column:2;grid-row:1;min-width:0; }
+.todo-name { font-size:14px;color:#203e5c;line-height:1.5;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.todo-node { font-size:12px;color:#52677e;margin-top:3px; }
+.todo-number { grid-column:2;grid-row:2;font-size:12px;color:#7b8b9d;overflow-wrap:anywhere; }
+.todo-deadline { grid-column:3;grid-row:1;font-size:12px;color:#42566d; }
+.todo-owner { grid-column:3;grid-row:2;font-size:12px;color:#687b8f; }
+.todo-actions { grid-column:4;grid-row:1 / 3;margin:0;justify-content:flex-end;flex-wrap:wrap;max-width:190px; }
+.todo-card.overdue .todo-deadline { color:#c73535; }
+.todo-actions :deep(.ant-btn) { height:30px;padding:0 12px; }
+@media(max-width:1200px){.todo-card{grid-template-columns:110px minmax(180px,1fr) 180px;column-gap:12px}.todo-deadline{grid-column:2;grid-row:3}.todo-owner{grid-column:2;grid-row:4}.todo-actions{grid-column:3;grid-row:1 / 5}.todo-top{grid-row:1 / 5}}
+@media(max-width:700px){.todo-card{grid-template-columns:1fr;gap:8px}.todo-top,.todo-identity,.todo-number,.todo-deadline,.todo-owner,.todo-actions{grid-column:1;grid-row:auto}.todo-top{flex-direction:row}.todo-actions{justify-content:flex-start;max-width:none}.todo-workspace :deep(.ant-card-head-wrapper){flex-wrap:wrap;padding:10px 0;gap:8px}}
+
+</style>
 
