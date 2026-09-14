@@ -145,7 +145,6 @@ const maintenanceRows = computed(() => {
   ])
   pushRows('ACCEPT', '项目验收', acceptMaterialNames(p.value.levelCode))
   pushRows('TRANSFORM', '成果转化', ['成果包材料', '成果转化申请/证明材料'])
-  pushRows('ARCHIVE', '完成归档', ['项目完成归档材料', '审批归档记录'])
 
   records
     .filter((m: any) => m.fieldCode && !usedCodes.has(m.fieldCode))
@@ -349,17 +348,38 @@ onMounted(async () => {
   await dictStore.loadChannels().catch(() => undefined)
   await load()
 })
+const visibleLifecycle = (nodes: LifecycleNode[]) =>
+  nodes
+    .filter((node) => node.nodeCode !== 'ARCHIVE')
+    .map((node, index) => ({ ...node, seq: index + 1 }))
+
 const lifecycle = computed<LifecycleNode[]>(() => {
-  if (data.value.lifecycle?.length) return data.value.lifecycle
+  if (data.value.lifecycle?.length) return visibleLifecycle(data.value.lifecycle)
   const transforms = Array.isArray(data.value.transforms) ? data.value.transforms : []
   const transformDone =
     transforms.length > 0 && transforms.every((t: any) => t.status === 'DONE')
-  return buildLifecycle({
-    status: p.value.status,
-    teamMembers: p.value.teamMembers,
-    createByName: p.value.createByName,
-    transformDone,
+  return visibleLifecycle(
+    buildLifecycle({
+      status: p.value.status,
+      teamMembers: p.value.teamMembers,
+      createByName: p.value.createByName,
+      transformDone,
+    }),
+  )
+})
+
+const lifecycleCycles = computed(() => {
+  const nodes = lifecycle.value
+  const group = (cycleName: string, codes: string[]) => ({
+    cycleName,
+    nodes: codes.map((code) => nodes.find((node) => node.nodeCode === code)).filter(Boolean) as LifecycleNode[],
   })
+  return [
+    group('立项准备', ['DECLARE', 'FILING']),
+    group('实施推进', ['IMPLEMENT']),
+    group('验收闭环', ['ACCEPT']),
+    group('成果转化', ['TRANSFORM']),
+  ].filter((cycle) => cycle.nodes.length)
 })
 
 const channelPath = computed(
@@ -658,35 +678,45 @@ function nameInitial(name?: string) {
           <span class="lifecycle-hint">点击节点查看只读详情，办理请从左侧任务栏进入</span>
         </div>
         <div class="lifecycle-track">
-          <template v-for="(node, idx) in lifecycle" :key="node.nodeCode">
-            <div
-              class="life-node"
-              :class="{
-                done: node.status === 'DONE',
-                todo: node.status === 'TODO',
-                pending: node.status === 'PENDING',
-              }"
-              @click="openNode(node)"
-            >
-              <div class="node-head">
-                <span class="node-seq">{{ String(node.seq).padStart(2, '0') }}</span>
-                <span class="node-name">{{ node.nodeName }}</span>
-                <CheckCircleFilled v-if="node.status === 'DONE'" class="node-check" />
-                <a-tag v-else-if="node.status === 'TODO'" color="processing" class="node-tag">待办</a-tag>
-                <a-tag v-else class="node-tag">未办理</a-tag>
-              </div>
-              <div class="node-body">
-                <div class="owner">{{ node.ownerName }}</div>
-                <template v-if="node.status === 'TODO'">
-                  <div class="sub">
-                    下一流程：{{ node.nextFlowName }}
-                    <template v-if="node.nextHandlerName"> · {{ node.nextHandlerName }}</template>
+          <template v-for="(cycle, cycleIdx) in lifecycleCycles" :key="cycle.cycleName">
+            <div class="life-cycle">
+              <div class="cycle-title">{{ cycle.cycleName }}</div>
+              <div class="cycle-nodes">
+                <template v-for="(node, nodeIdx) in cycle.nodes" :key="node.nodeCode">
+                  <div
+                    class="life-node"
+                    :class="{
+                      done: node.status === 'DONE',
+                      todo: node.status === 'TODO',
+                      pending: node.status === 'PENDING',
+                    }"
+                    @click="openNode(node)"
+                  >
+                    <div class="node-head">
+                      <span class="node-seq">{{ String(node.seq).padStart(2, '0') }}</span>
+                      <span class="node-name">{{ node.nodeName }}</span>
+                      <CheckCircleFilled v-if="node.status === 'DONE'" class="node-check" />
+                      <a-tag v-else-if="node.status === 'TODO'" color="processing" class="node-tag">待办</a-tag>
+                      <a-tag v-else class="node-tag">未办理</a-tag>
+                    </div>
+                    <div class="node-body">
+                      <div class="owner">{{ node.ownerName }}</div>
+                      <template v-if="node.status === 'TODO'">
+                        <div class="sub">
+                          下一流程：{{ node.nextFlowName }}
+                          <template v-if="node.nextHandlerName"> · {{ node.nextHandlerName }}</template>
+                        </div>
+                        <div class="hint">查看详情</div>
+                      </template>
+                    </div>
                   </div>
-                  <div class="hint">查看详情</div>
+                  <div v-if="nodeIdx < cycle.nodes.length - 1" class="node-connector inner" aria-hidden="true">
+                    <RightOutlined />
+                  </div>
                 </template>
               </div>
             </div>
-            <div v-if="idx < lifecycle.length - 1" class="node-connector" aria-hidden="true">
+            <div v-if="cycleIdx < lifecycleCycles.length - 1" class="node-connector" aria-hidden="true">
               <RightOutlined />
             </div>
           </template>
@@ -1287,9 +1317,32 @@ function nameInitial(name?: string) {
   gap: 0;
   overflow-x: auto;
 }
+.life-cycle {
+  flex: 1 0 220px;
+  min-width: 220px;
+  border: 1px solid #f0f0f0;
+  border-radius: 4px;
+  padding: 10px;
+  background: #fff;
+}
+.life-cycle:first-child {
+  flex-basis: 420px;
+  min-width: 420px;
+}
+.cycle-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #8c8c8c;
+  margin-bottom: 8px;
+}
+.cycle-nodes {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+}
 .life-node {
   flex: 1;
-  min-width: 148px;
+  min-width: 0;
   border: 1px solid #e8e8e8;
   border-radius: 4px;
   padding: 12px 16px;
@@ -1308,7 +1361,6 @@ function nameInitial(name?: string) {
   background: #fff;
   border: 2px solid #0064ef;
   box-shadow: 0 0 0 2px rgba(0, 100, 239, 0.08);
-  min-width: 176px;
 }
 .life-node.pending {
   background: #fafafa;
@@ -1362,6 +1414,9 @@ function nameInitial(name?: string) {
   flex-shrink: 0;
   color: #bfbfbf;
   font-size: 10px;
+}
+.node-connector.inner {
+  width: 18px;
 }
 
 .detail-card {
