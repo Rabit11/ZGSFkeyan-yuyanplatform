@@ -120,23 +120,14 @@ function stOf(order: number, current: number, done: boolean, dualCurrent?: numbe
 
 function inferCurrent(transforms: any[], projectStatus?: string): { current: number; done: boolean } {
   const pkgs = transforms || []
-  const pst = String(projectStatus || '')
-  if (pst === 'FINISHED' && pkgs.length && pkgs.every((t: any) => t.status === 'DONE')) {
-    return { current: 99, done: true }
-  }
-  if (!pkgs.length || pkgs.every((t: any) => t.status === 'NOT_STARTED' || !t.status)) {
-    return { current: 1, done: false }
-  }
-  if (pkgs.some((t: any) => t.status === 'DONE') && pkgs.every((t: any) => t.status === 'DONE')) {
-    return { current: 6, done: false }
-  }
-  if (pkgs.some((t: any) => t.status === 'SIGNED' || t.status === 'DONE')) {
-    return { current: 5, done: false }
-  }
-  if (pkgs.some((t: any) => t.status === 'NEGOTIATING')) {
-    return { current: 3, done: false }
-  }
-  return { current: 2, done: false }
+  if (!pkgs.length) return { current: 1, done: false }
+  // 审核节点取持久化流程状态，业务进度不能代替审批结果。
+  if (pkgs.some(t => !t.workflowStatus || ['DRAFT', 'RETURNED'].includes(t.workflowStatus))) return { current: 2, done: false }
+  if (pkgs.some(t => t.workflowStatus === 'UNIT_REVIEW')) return { current: 3, done: false }
+  if (pkgs.some(t => t.workflowStatus === 'HQ_RECORD')) return { current: 4, done: false }
+  const complete = pkgs.every(t => t.status === 'DONE' && t.workflowStatus === 'RECORDED')
+  if (complete && projectStatus === 'FINISHED') return { current: 99, done: true }
+  return { current: complete ? 7 : 6, done: false }
 }
 
 export function buildTransformFlowOptsFromOverview(overview: any): TfFlowOpts {
@@ -245,7 +236,7 @@ export function buildTransformFlowOptsFromOverview(overview: any): TfFlowOpts {
   const currentFlow = done
     ? '已办结 · 可归档'
     : now.length
-      ? `${now[now.length - 1].lane} · ${unitClerk.name || unitClerk.label}`
+      ? `${now[now.length - 1].lane} · ${who(now[now.length - 1])}`
       : '待发起'
 
   const latestProcess = done
@@ -272,7 +263,7 @@ export function buildTransformFlowOptsFromOverview(overview: any): TfFlowOpts {
       delivered,
       bound,
       packages: transforms.length,
-      materials: transforms.reduce((n: number, t: any) => n + Number(t.itemCount || 0), 0),
+      materials: transforms.reduce((n: number, t: any) => { try { return n + (JSON.parse(t.evidenceJson || '[]').length || 0) } catch { return n } }, 0),
     },
     processHint:
       '仅已交付交付物可纳入成果包。审核通过后数据双向同步台账与看板；全部成果包完成并上传佐证后可发起项目完成归档。',
