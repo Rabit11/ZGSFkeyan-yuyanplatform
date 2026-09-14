@@ -1,380 +1,104 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { CheckCircleFilled, RightOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
-import { declarationApi, dictApi, projectApi, acceptanceApi, fileApi } from '@/api/modules'
+import { projectApi } from '@/api/modules'
+import http from '@/api/request'
+import { supplementApi } from '@/api/supplement'
+import { detailStages, materialRows, sourceLabel, sectionTab, attachNativeMaterials, sectionStage } from '@/utils/projectDetailPresentation'
+import ProjectStageMaterials from '@/components/ProjectStageMaterials.vue'
+import ReadonlyMaterialFile from '@/components/ReadonlyMaterialFile.vue'
 import { fmtAmount, fmtDate } from '@/utils/format'
 import StatusTag from '@/components/StatusTag.vue'
 import { LEVEL_TEXT, PROJECT_STATUS_TEXT } from '@/api/types'
 import {
-  buildLifecycle,
   channelPathLabel,
   stageBadge,
-  type LifecycleNode,
 } from '@/utils/lifecycle'
-import { buildDeclareFlowOpts, type DeclareFlowOpts } from '@/utils/declareFlow'
-import DeclareFlowDialog from '@/components/declare/DeclareFlowDialog.vue'
-import { buildFilingFlowOpts, type FilingFlowOpts } from '@/utils/filingFlow'
-import FilingFlowDialog from '@/components/filing/FilingFlowDialog.vue'
-import ImplementFlowDialog from '@/components/implement/ImplementFlowDialog.vue'
-import { buildImplementFlowOptsFromOverview } from '@/utils/implementFlow'
-import AcceptFlowDialog from '@/components/acceptance/AcceptFlowDialog.vue'
-import { buildAcceptFlowOptsFromOverview } from '@/utils/acceptFlow'
-import TransformFlowDialog from '@/components/transform/TransformFlowDialog.vue'
-import { buildTransformFlowOptsFromOverview } from '@/utils/transformFlow'
-import {
-  inferDeclareStatus,
-  liveMaterials,
-  mergePosts,
-  personLabelOf,
-  postsFromTeamMembers,
-  channelRequiredMaterials,
-  unwrapDeclarationDetail,
-} from '@/utils/flowLive'
-import { READONLY_FLOW_NOTICE } from '@/utils/flowEntryPolicy'
+import { personLabelOf } from '@/utils/flowLive'
 import { useDictStore } from '@/stores/dict'
 import ProjectVizPanel from '@/components/ProjectVizPanel.vue'
+import SupplementSummary from '@/components/SupplementSummary.vue'
 
 const dictStore = useDictStore()
 const route = useRoute()
 const router = useRouter()
-const id = Number(route.params.id)
+let id = Number(route.params.id)
 const data = ref<any>({})
 const active = ref('overview')
 const loading = ref(false)
-const drawerOpen = ref(false)
-const activeNode = ref<LifecycleNode | null>(null)
-const flowOpen = ref(false)
-const filingFlowOpen = ref(false)
-const implementFlowOpen = ref(false)
-const acceptFlowOpen = ref(false)
-const transformFlowOpen = ref(false)
-const maintenanceAuditOpen = ref(false)
-const maintenanceAuditKind = ref<'unit' | 'hq'>('unit')
-const maintenanceAuditForm = reactive({ pass: true, opinion: '' })
-
 const p = computed(() => data.value.project || {})
 const channel = computed(() => data.value.channel || {})
 const isMaintenanceProject = computed(() => p.value.dataSource === 'FORM_MAINT')
-const maintenanceMaterials = computed(() => data.value.maintenanceMaterials || [])
-const maintenanceFlow = computed(() => data.value.maintenanceFlow || {})
-const currentChannel = computed(() => {
-  if (channel.value?.id || channel.value?.channelName) return channel.value
-  const channels = dictStore.channels || []
-  return (
-    channels.find((c: any) => p.value.channelId && c.id === p.value.channelId) ||
-    channels.find((c: any) => p.value.channelName && c.channelName === p.value.channelName) ||
-    {}
-  )
-})
-const maintenanceStatusColor = computed(() => {
-  const map: Record<string, string> = {
-    MAINT_UNIT_REVIEW: 'processing',
-    MAINT_HQ_REVIEW: 'blue',
-    MAINT_DONE: 'success',
-    MAINT_REJECTED: 'error',
-  }
-  return map[maintenanceFlow.value.status] || 'warning'
-})
-
-const ACCEPTANCE_MATERIALS: Record<string, string[]> = {
-  UNIT: ['验收申请书', '技术总结报告', '经费决算表', '交付物清单'],
-  COMPANY: ['公司级验收申请表', '评审专家意见', '验收结论'],
-  NATIONAL: ['国家级验收申请', '主管机关批复', '综合绩效评价材料'],
-  LOCAL: ['属地验收申请', '科委验收意见', '综合绩效评价材料'],
-}
-
-function acceptMaterialNames(levelCode?: string) {
-  if (levelCode === 'NATIONAL') {
-    return [...ACCEPTANCE_MATERIALS.UNIT, ...ACCEPTANCE_MATERIALS.COMPANY, ...ACCEPTANCE_MATERIALS.NATIONAL]
-  }
-  if (levelCode === 'LOCAL') {
-    return [...ACCEPTANCE_MATERIALS.UNIT, ...ACCEPTANCE_MATERIALS.LOCAL]
-  }
-  if (levelCode === 'COMPANY') {
-    return [...ACCEPTANCE_MATERIALS.UNIT, ...ACCEPTANCE_MATERIALS.COMPANY]
-  }
-  return ACCEPTANCE_MATERIALS.UNIT
-}
-
-function uniq(list: string[]) {
-  return Array.from(new Set(list.map((s) => String(s || '').trim()).filter(Boolean)))
-}
-
-function materialCode(stageKey: string, index: number) {
-  return `MAINTAIN_MATERIAL_${stageKey}_${String(index + 1).padStart(2, '0')}`
-}
-
-const maintenanceRows = computed(() => {
-  const rows: any[] = []
-  const usedCodes = new Set<string>()
-  const records = Array.isArray(maintenanceMaterials.value) ? maintenanceMaterials.value : []
-  const pushRows = (stageKey: string, stageName: string, names: string[], required = true) => {
-    uniq(names).forEach((name, index) => {
-      const code = materialCode(stageKey, index)
-      const rec =
-        records.find((m: any) => m.fieldCode === code) ||
-        records.find((m: any) => m.fieldCode === 'MAINTAIN_MATERIAL' && m.fieldName === name)
-      if (rec?.fieldCode) usedCodes.add(rec.fieldCode)
-      rows.push({
-        key: code,
-        code,
-        stageKey,
-        stageName,
-        materialName: name,
-        required,
-        uploaded: !!(rec?.fileName || rec?.fileUrl || rec?.uploadedAt),
-        fileName: rec?.fileName,
-        fileUrl: rec?.fileUrl,
-        uploadedBy: rec?.uploadedBy,
-        uploadedAt: rec?.uploadedAt,
-      })
-    })
-  }
-
-  pushRows('DECLARE', '项目申报', channelRequiredMaterials(currentChannel.value, 'declare'))
-  pushRows('FILING', '立项备案', channelRequiredMaterials(currentChannel.value, 'filing'))
-  pushRows('IMPLEMENT', '实施阶段', [
-    '年度计划与实施方案',
-    '里程碑及交付物清单',
-    '节点完成佐证材料',
-    '阶段检查/评估结论材料',
-    '经费预算及核销凭证材料',
-    '项目变更申请及支撑材料',
-  ])
-  pushRows('ACCEPT', '项目验收', acceptMaterialNames(p.value.levelCode))
-  pushRows('TRANSFORM', '成果转化', ['成果包材料', '成果转化申请/证明材料'])
-  pushRows('ARCHIVE', '完成归档', ['项目完成归档材料', '审批归档记录'])
-
-  records
-    .filter((m: any) => m.fieldCode && !usedCodes.has(m.fieldCode))
-    .forEach((m: any) => {
-      if (!String(m.fieldCode).startsWith('MAINTAIN_MATERIAL')) return
-      rows.push({
-        key: m.fieldCode || m.id,
-        code: m.fieldCode,
-        stageKey: 'OTHER',
-        stageName: '其他',
-        materialName: m.fieldName || '维护材料',
-        required: false,
-        uploaded: !!(m.fileName || m.fileUrl || m.uploadedAt),
-        fileName: m.fileName,
-        fileUrl: m.fileUrl,
-        uploadedBy: m.uploadedBy,
-        uploadedAt: m.uploadedAt,
-      })
-    })
-  return rows
-})
-
-const maintenanceRequiredComplete = computed(() =>
-  maintenanceRows.value.filter((row) => row.required).every((row) => row.uploaded),
-)
-const maintenanceMissingCount = computed(() =>
-  maintenanceRows.value.filter((row) => row.required && !row.uploaded).length,
-)
-const canSubmitMaintenance = computed(() => !!maintenanceFlow.value.canSubmit && maintenanceRequiredComplete.value)
-const maintenanceHandlers = computed(() => maintenanceFlow.value.handlers || {})
-
-function maintenanceHandlerText(key: 'owner' | 'unitReviewer' | 'hqReviewer', fallback: string) {
-  return maintenanceHandlers.value?.[key] || fallback
-}
-
-function livePosts() {
-  const decl = data.value.declaration || {}
-  return mergePosts(
-    postsFromTeamMembers(p.value.teamMembers, {
-      contact: p.value.createByName,
-      leader: p.value.ownerName,
-    }),
-    decl.posts,
-  )
-}
-
-const declareFlowOpts = computed<DeclareFlowOpts>(() => {
-  const decl = data.value.declaration || {}
-  const inferred = inferDeclareStatus(p.value.status)
-  const posts = livePosts()
-  const materials = liveMaterials({
-    requiredNames: channelRequiredMaterials(channel.value, 'declare'),
-    records: data.value.declarationMaterials || decl.materials,
-  })
-  return buildDeclareFlowOpts(
-    {
-      applyNo: decl.applyNo || p.value.projectNo,
-      name: decl.name || p.value.name,
-      channelName: channel.value.channelName || p.value.channelName,
-      channelCode: channel.value.channelCode || (decl as any).channelCode || (p.value as any).channelCode,
-      levelCode: decl.levelCode || p.value.levelCode,
-      needApproval: decl.needApproval ?? 1,
-      status: decl.status || inferred.status,
-      flowNode: decl.flowNode || inferred.flowNode,
-      applicant: posts.contact,
-      posts: posts as any,
-      materials: data.value.declarationMaterials || decl.materials,
-      declareMaterial: channel.value.declareMaterial,
-      channelDeclareMaterial: channel.value.declareMaterial,
-    } as any,
-    {
-      channelLevel: decl.levelCode || p.value.levelCode,
-      materials,
-      declareMaterial: channelRequiredMaterials(channel.value, 'declare'),
-    },
-  )
-})
-
-async function openDeclareFlow() {
-  await hydrateFlowSources()
-  flowOpen.value = true
-}
-
-const filingFlowOpts = computed<FilingFlowOpts>(() => {
-  const decl = data.value.declaration || {}
-  const filing = data.value.filing || {}
-  const posts = livePosts()
-  const st = String(p.value.status || '')
-  return buildFilingFlowOpts({
-    applyNo: decl.applyNo || p.value.projectNo,
-    name: decl.name || p.value.name,
-    channelName: channel.value.channelName || p.value.channelName,
-    filingMaterial: channelRequiredMaterials(channel.value, 'filing').join('、'),
-    channelFilingMaterial: channelRequiredMaterials(channel.value, 'filing').join('、'),
-    filingMaterials: data.value.filingMaterials,
-    materials: data.value.declarationMaterials || decl.materials,
-    projectStatus: st,
-    projectStatusLabel: PROJECT_STATUS_TEXT[st] || undefined,
-    status: decl.status,
-    filingStatus: filing.status,
-    posts: posts as any,
-  } as any)
-})
-
-async function openFilingFlow() {
-  await hydrateFlowSources()
-  filingFlowOpen.value = true
-}
-
-const implementFlowOpts = computed(() => buildImplementFlowOptsFromOverview(data.value))
-
-function openImplementFlow() {
-  load().finally(() => {
-    implementFlowOpen.value = true
-  })
-}
-
-const acceptFlowOpts = computed(() =>
-  buildAcceptFlowOptsFromOverview(data.value, { items: data.value.acceptance?.items }),
-)
-
-async function openAcceptFlow() {
-  await load()
-  try {
-    const res = await acceptanceApi.detail(id)
-    const acc = res.data || {}
-    data.value = {
-      ...data.value,
-      acceptance: { ...(data.value.acceptance || {}), ...acc },
-    }
-  } catch {
-    /* 无验收主记录时仍按概览展示流转 */
-  }
-  acceptFlowOpen.value = true
-}
-
-const transformFlowOpts = computed(() => buildTransformFlowOptsFromOverview(data.value))
-
-function openTransformFlow() {
-  transformFlowOpen.value = true
-  load()
-}
-
-async function hydrateFlowSources() {
-  await load()
-  const next = { ...data.value }
-  let changed = false
-  if (p.value.channelId && !(next.channel?.declareMaterial || next.channel?.filingMaterial)) {
+const selectedStage = ref<number | null>(null)
+const supplementSections = ref<any[]>([])
+const approvedSections = ref<any[]>([])
+const materialError = ref('')
+const supplementError = ref('')
+const nativeFiles = computed(() => {
+  const files = [...(data.value.projectMaterials || []), ...(data.value.acceptanceMaterials || []).map((f:any) => ({...f,id:`acceptance-${f.id}`,sectionKey:'acceptance'}))]
+  for (const transform of data.value.transforms || []) {
     try {
-      const fromStore = dictStore.channels.find((c) => c.id === p.value.channelId)
-      if (fromStore) {
-        next.channel = { ...next.channel, ...fromStore }
-        changed = true
-      } else {
-        const res = await dictApi.channel(p.value.channelId)
-        next.channel = { ...next.channel, ...(res.data || {}) }
-        changed = true
-      }
-    } catch {
-      /* 渠道拉取失败时仍用概览已有字段 */
-    }
+      const evidence = JSON.parse(transform.evidenceJson || '[]')
+      if (Array.isArray(evidence)) files.push(...evidence.map((f:any,i:number) => ({...f,id:`transform-${transform.id}-${i}`,sectionKey:'transform',fieldName:'成果转化佐证',fileName:f.fileName || f.name || '成果转化附件'})))
+    } catch { /* Legacy invalid payloads remain available in the source module. */ }
   }
-  if (!next.declaration && p.value.name) {
-    try {
-      const res = await declarationApi.page({ keyword: p.value.name, page: 1, size: 20 })
-      const records = (res.data as any)?.records || []
-      const hit =
-        records.find((r: any) => r.name === p.value.name) ||
-        records.find((r: any) => r.applyNo && r.applyNo === p.value.projectNo)
-      if (hit?.id) {
-        const detail = await declarationApi.detail(hit.id)
-        const unwrapped = unwrapDeclarationDetail(detail.data)
-        next.declaration = { ...hit, ...unwrapped.declaration }
-        next.declarationMaterials = unwrapped.materials
-        changed = true
-      }
-    } catch {
-      /* 无关联申报单时按项目团队/渠道字典展示 */
-    }
-  } else if (next.declaration?.id && !next.declarationMaterials?.length) {
-    try {
-      const mats = await declarationApi.materials(next.declaration.id)
-      next.declarationMaterials = mats.data || []
-      changed = true
-    } catch {
-      /* ignore */
-    }
-  }
-  if (changed) data.value = next
+  return files
+})
+const sections = computed(() => {
+  const base = data.value.materialSections || []
+  const records = supplementSections.value.length ? supplementSections.value : approvedSections.value
+  const combined = base.map((s:any) => records.find((r:any) => r.key === s.key) || s)
+    .concat(records.filter((r:any) => !base.some((s:any) => s.key === r.key)))
+  return attachNativeMaterials(combined, nativeFiles.value)
+})
+const stageRows = computed(() => materialRows(sections.value, p.value.status))
+const lifecycleCycles = computed(() => detailStages(p.value.status,
+  (data.value.transforms || []).length > 0 && data.value.transforms.every((t:any) => t.status === 'DONE')))
+function materialSummary(stageId:number) {
+  if (!data.value.materialChannelResolved || !sections.value.length) return '材料要求待确认'
+  const rows = stageRows.value.filter(r => r.stage === stageId)
+  if (rows.some(r => r.state === 'unknown') || sections.value.some((s:any) => sectionStage(s) === stageId && s.configurationPending)) return '部分材料要求待确认'
+  const due = rows.filter(r => r.required && !['future','inapplicable'].includes(r.state))
+  const missing = due.filter(r => ['missing','returned'].includes(r.state)).length
+  const future = rows.filter(r => r.state === 'future').length
+  if (!due.length) return future ? `后续材料 ${future} 项` : rows.some(r=>r.state === 'condition') ? '适用条件待确认' : '暂无已触发的必交材料'
+  return `材料齐备 ${due.filter(r=>r.state === 'complete').length}/${due.length} · 待补 ${missing} 项`
 }
+const approvedForTab = computed(() => [...approvedSections.value, ...supplementSections.value.filter(s => s.status !== 'APPROVED')].filter(s => sectionTab(s.key) === active.value))
+const tabFiles = computed(() => nativeFiles.value.filter(f => sectionTab(f.sectionKey) === active.value))
 
 async function load() {
   loading.value = true
   try {
     const res = await projectApi.overview(id)
     data.value = res.data || {}
+    materialError.value = data.value.materialSections ? '' : '当前服务未返回渠道材料清单，请更新配套后端后重试。'
+    approvedSections.value = []; supplementSections.value = []; supplementError.value = ''
+    if (isMaintenanceProject.value) {
+      try { approvedSections.value = (await http.get<any[]>(`/api/supplement/${id}/approved`)).data || [] }
+      catch { supplementError.value = '已审核补录信息读取失败或无查看权限，请重试或联系管理员。' }
+      try { supplementSections.value = (await supplementApi.detail(String(id))).data.sections || [] }
+      catch { materialError.value = '当前补录材料读取失败或无查看权限；下方仅展示可访问的已审核版本，不能据此判定当前缺项。' }
+    }
   } finally {
     loading.value = false
   }
 }
+watch(() => route.params.id, value => {
+  id = Number(value)
+  active.value = 'overview'
+  selectedStage.value = null
+  data.value = {}
+  void load()
+})
 onMounted(async () => {
   await dictStore.loadChannels().catch(() => undefined)
   await load()
 })
-const lifecycle = computed<LifecycleNode[]>(() => {
-  if (data.value.lifecycle?.length) return data.value.lifecycle
-  const transforms = Array.isArray(data.value.transforms) ? data.value.transforms : []
-  const transformDone =
-    transforms.length > 0 && transforms.every((t: any) => t.status === 'DONE')
-  return buildLifecycle({
-    status: p.value.status,
-    teamMembers: p.value.teamMembers,
-    createByName: p.value.createByName,
-    transformDone,
-  })
-})
-
 const channelPath = computed(
   () => data.value.channelPath || channelPathLabel({ ...channel.value, channelName: p.value.channelName }),
 )
-const channelFlowNodes = computed<string[]>(() => {
-  if (data.value.channelFlowNodes?.length) return data.value.channelFlowNodes
-  const raw = channel.value.flowNodes || ''
-  return String(raw)
-    .split('→')
-    .map((s: string) => s.trim())
-    .filter(Boolean)
-})
-
 const msList = computed(() => data.value.milestones || [])
 const msDone = computed(() => msList.value.filter((m: any) => m.status === 'DONE' || m.colorStatus === 'GREEN').length)
 const msTotal = computed(() => msList.value.length)
@@ -461,7 +185,6 @@ const msColumns = [
   { title: '年度', dataIndex: 'year', width: 80 },
   { title: '计划完成', dataIndex: 'planDate', width: 120 },
   { title: '实际完成', dataIndex: 'actualDate', width: 120 },
-  { title: '节点预算(万元)', dataIndex: 'budget', width: 130, align: 'right' as const },
   { title: '状态', dataIndex: 'colorStatus', width: 110 },
   { title: '滞后原因', dataIndex: 'lagReason' },
 ]
@@ -493,100 +216,6 @@ const peColumns = [
   { title: '等级', dataIndex: 'grade', width: 90 },
 ]
 
-const maintenanceColumns = [
-  { title: '环节', dataIndex: 'stageName', width: 140 },
-  { title: '需维护信息 / 材料', dataIndex: 'materialName' },
-  { title: '要求', dataIndex: 'required', width: 80 },
-  { title: '上传状态', dataIndex: 'uploaded', width: 110 },
-  { title: '已上传文件', dataIndex: 'fileName', width: 260 },
-  { title: '上传人 / 时间', dataIndex: 'uploadedAt', width: 180 },
-  { title: '操作', dataIndex: 'action', width: 120, fixed: 'right' as const },
-]
-
-async function uploadMaintenanceMaterial(options: any, row: any) {
-  try {
-    const form = new FormData()
-    form.append('file', options.file)
-    const uploaded = (await fileApi.upload(form, 'form-maint-maintenance')).data as any
-    await projectApi.saveMaintenanceMaterial(id, {
-      fieldCode: row.code,
-      fieldName: row.materialName || '维护材料',
-      fileName: uploaded.fileName || options.file?.name,
-      fileUrl: uploaded.fileUrl,
-      fileSize: uploaded.fileSize || options.file?.size,
-    })
-    message.success(`已上传：${row.materialName}`)
-    options.onSuccess?.(uploaded)
-    await load()
-  } catch (e: any) {
-    options.onError?.(e)
-    message.error(e.message || '维护材料上传失败')
-  }
-}
-
-async function submitMaintenance() {
-  try {
-    await projectApi.submitMaintenance(id)
-    message.success('已提交本单位科技管理部负责人审核')
-    await load()
-  } catch (e: any) {
-    message.error(e.message || '提交失败')
-  }
-}
-
-function openMaintenanceAudit(kind: 'unit' | 'hq') {
-  maintenanceAuditKind.value = kind
-  maintenanceAuditForm.pass = true
-  maintenanceAuditForm.opinion = ''
-  maintenanceAuditOpen.value = true
-}
-
-async function confirmMaintenanceAudit() {
-  const payload = {
-    pass: maintenanceAuditForm.pass,
-    opinion: maintenanceAuditForm.opinion,
-  }
-  try {
-    if (maintenanceAuditKind.value === 'unit') {
-      await projectApi.unitAuditMaintenance(id, payload)
-      message.success(payload.pass ? '单位审核通过，已提交总部主管审核' : '已退回项目负责人维护')
-    } else {
-      await projectApi.hqAuditMaintenance(id, payload)
-      message.success(payload.pass ? '总部主管审核通过，维护完成' : '已退回项目负责人维护')
-    }
-    maintenanceAuditOpen.value = false
-    await load()
-  } catch (e: any) {
-    message.error(e.message || '审核失败')
-  }
-}
-
-function openNode(node: LifecycleNode) {
-  // 未办理节点也允许只读查看流转/详情（不强制先办完上一阶段）
-  if (node.nodeCode === 'DECLARE') {
-    openDeclareFlow()
-    return
-  }
-  if (node.nodeCode === 'FILING') {
-    openFilingFlow()
-    return
-  }
-  if (node.nodeCode === 'IMPLEMENT') {
-    openImplementFlow()
-    return
-  }
-  if (node.nodeCode === 'ACCEPT') {
-    openAcceptFlow()
-    return
-  }
-  if (node.nodeCode === 'TRANSFORM') {
-    openTransformFlow()
-    return
-  }
-  activeNode.value = node
-  drawerOpen.value = true
-}
-
 function fmtDot(d?: string) {
   if (!d) return '—'
   return String(d).replace(/-/g, '.').slice(0, 10)
@@ -611,9 +240,7 @@ function nameInitial(name?: string) {
               <a-tag v-if="PROJECT_STATUS_TEXT[p.status]" color="success">
                 {{ PROJECT_STATUS_TEXT[p.status] }}
               </a-tag>
-              <a-tag v-if="isMaintenanceProject" :color="maintenanceStatusColor">
-                {{ maintenanceFlow.statusText || '待维护' }}
-              </a-tag>
+              <a-tag color="blue">{{ sourceLabel(p.dataSource) }}</a-tag>
               <a-tag v-if="stage" :color="stage.color">{{ stage.text }}</a-tag>
               <StatusTag v-if="p.warnColor" :color="p.warnColor" />
             </div>
@@ -652,184 +279,25 @@ function nameInitial(name?: string) {
         </div>
       </div>
 
-      <!-- B. 生命周期流程条 -->
+      <!-- 三阶段仅展示状态与材料，不承载审批流转 -->
       <div class="lifecycle-wrap">
-        <div class="lifecycle-head">
-          <div class="lifecycle-title">项目生命周期</div>
-          <span class="lifecycle-hint">点击节点查看只读详情，办理请从左侧任务栏进入</span>
-        </div>
+        <div class="lifecycle-head"><div class="lifecycle-title">项目生命周期</div><span class="lifecycle-hint">材料只读查看 · 办理请从左侧功能栏进入</span></div>
         <div class="lifecycle-track">
-          <template v-for="(node, idx) in lifecycle" :key="node.nodeCode">
-            <div
-              class="life-node"
-              :class="{
-                done: node.status === 'DONE',
-                todo: node.status === 'TODO',
-                pending: node.status === 'PENDING',
-              }"
-              @click="openNode(node)"
-            >
-              <div class="node-head">
-                <span class="node-seq">{{ String(node.seq).padStart(2, '0') }}</span>
-                <span class="node-name">{{ node.nodeName }}</span>
-                <CheckCircleFilled v-if="node.status === 'DONE'" class="node-check" />
-                <a-tag v-else-if="node.status === 'TODO'" color="processing" class="node-tag">待办</a-tag>
-                <a-tag v-else class="node-tag">未办理</a-tag>
-              </div>
-              <div class="node-body">
-                <div class="owner">{{ node.ownerName }}</div>
-                <template v-if="node.status === 'TODO'">
-                  <div class="sub">
-                    下一流程：{{ node.nextFlowName }}
-                    <template v-if="node.nextHandlerName"> · {{ node.nextHandlerName }}</template>
-                  </div>
-                  <div class="hint">查看详情</div>
-                </template>
-              </div>
-            </div>
-            <div v-if="idx < lifecycle.length - 1" class="node-connector" aria-hidden="true">
-              <RightOutlined />
-            </div>
-          </template>
+          <section v-for="cycle in lifecycleCycles" :key="cycle.id" class="life-cycle" :class="[cycle.status, {selected:selectedStage===cycle.id}]">
+            <div class="cycle-head"><h2><span>{{String(cycle.id+1).padStart(2,'0')}}</span>{{cycle.name}}</h2><a-tag :color="cycle.status==='current'?'processing':cycle.status==='done'?'success':'default'">{{cycle.label}}</a-tag></div>
+            <p class="material-count">{{ materialError ? '材料状态待核对' : materialSummary(cycle.id) }}</p>
+            <p class="stage-owner">项目负责人：{{p.ownerName || '待指定'}}</p>
+            <a-button type="link" size="small" :aria-expanded="selectedStage===cycle.id" @click="selectedStage=selectedStage===cycle.id?null:cycle.id">{{selectedStage===cycle.id?'收起材料':cycle.status==='future'?'查看要求':'查看材料'}}</a-button>
+          </section>
         </div>
+        <a-alert v-if="materialError" type="warning" :message="materialError" style="margin-top:12px" show-icon><template #action><a-button size="small" @click="load">重试</a-button></template></a-alert>
+        <ProjectStageMaterials v-if="selectedStage!==null" :sections="sections" :status="p.status" :stage="selectedStage" :resolved="!!data.materialChannelResolved" :imported="isMaintenanceProject" :project-id="id" />
       </div>
 
       <!-- C. Tab 内容 -->
       <a-card :body-style="{ padding: '12px 20px 20px' }" class="detail-card">
         <a-tabs v-model:activeKey="active">
           <a-tab-pane key="overview" tab="概览">
-            <div v-if="isMaintenanceProject" class="maintenance-panel">
-              <div class="maintenance-head">
-                <div>
-                  <div class="maintenance-title">待维护项目材料</div>
-                  <div class="maintenance-desc">
-                    项目负责人上传维护相关材料并提交，本单位科技管理部负责人审核后，流转至总部主管终审。
-                  </div>
-                </div>
-                <a-space wrap>
-                  <a-tag :color="maintenanceStatusColor">{{ maintenanceFlow.statusText || '待维护' }}</a-tag>
-                  <a-button
-                    type="primary"
-                    :disabled="!canSubmitMaintenance"
-                    @click="submitMaintenance"
-                  >
-                    提交单位审核
-                  </a-button>
-                  <a-button
-                    v-if="maintenanceFlow.canUnitAudit"
-                    type="primary"
-                    ghost
-                    @click="openMaintenanceAudit('unit')"
-                  >
-                    单位审核
-                  </a-button>
-                  <a-button
-                    v-if="maintenanceFlow.canHqAudit"
-                    type="primary"
-                    ghost
-                    @click="openMaintenanceAudit('hq')"
-                  >
-                    总部审核
-                  </a-button>
-                </a-space>
-              </div>
-              <a-row :gutter="16" class="maintenance-flow">
-                <a-col :span="8">
-                  <div class="maintenance-step done">
-                    <div class="maintenance-step-title">1 项目负责人上传 / 提交</div>
-                    <div class="maintenance-step-person">
-                      办理人：{{ maintenanceHandlerText('owner', p.ownerName || '待指定') }}
-                    </div>
-                  </div>
-                </a-col>
-                <a-col :span="8">
-                  <div
-                    class="maintenance-step"
-                    :class="{ active: maintenanceFlow.status === 'MAINT_UNIT_REVIEW', done: ['MAINT_HQ_REVIEW', 'MAINT_DONE'].includes(maintenanceFlow.status) }"
-                  >
-                    <div class="maintenance-step-title">2 本单位科技管理部负责人审核</div>
-                    <div class="maintenance-step-person">
-                      审核人：{{ maintenanceHandlerText('unitReviewer', '待指定') }}
-                    </div>
-                  </div>
-                </a-col>
-                <a-col :span="8">
-                  <div
-                    class="maintenance-step"
-                    :class="{ active: maintenanceFlow.status === 'MAINT_HQ_REVIEW', done: maintenanceFlow.status === 'MAINT_DONE' }"
-                  >
-                    <div class="maintenance-step-title">3 总部主管审核</div>
-                    <div class="maintenance-step-person">
-                      审核人：{{ maintenanceHandlerText('hqReviewer', '待指定') }}
-                    </div>
-                  </div>
-                </a-col>
-              </a-row>
-              <div class="maintenance-files">
-                <div class="sub-title-row">
-                  <div class="sub-title">维护材料清单</div>
-                  <span class="missing-tip" v-if="maintenanceMissingCount">
-                    还有 {{ maintenanceMissingCount }} 项必传材料未上传
-                  </span>
-                </div>
-                <a-table
-                  size="small"
-                  row-key="key"
-                  :pagination="false"
-                  :data-source="maintenanceRows"
-                  :columns="maintenanceColumns"
-                  :scroll="{ x: 960 }"
-                >
-                  <template #bodyCell="{ column, record }">
-                    <template v-if="column.dataIndex === 'required'">
-                      <a-tag :color="record.required ? 'red' : 'default'">
-                        {{ record.required ? '必传' : '选传' }}
-                      </a-tag>
-                    </template>
-                    <template v-else-if="column.dataIndex === 'uploaded'">
-                      <a-tag :color="record.uploaded ? 'green' : 'orange'">
-                        {{ record.uploaded ? '已上传' : '待上传' }}
-                      </a-tag>
-                    </template>
-                    <template v-else-if="column.dataIndex === 'fileName'">
-                      <a v-if="record.fileUrl" :href="record.fileUrl" target="_blank" rel="noopener">
-                        {{ record.fileName || '查看附件' }}
-                      </a>
-                      <span v-else-if="record.fileName">{{ record.fileName }}</span>
-                      <span v-else class="empty-text">—</span>
-                    </template>
-                    <template v-else-if="column.dataIndex === 'uploadedAt'">
-                      <div v-if="record.uploadedAt">
-                        <div>{{ record.uploadedBy || '—' }}</div>
-                        <div class="time-text">{{ fmtDate(record.uploadedAt) }}</div>
-                      </div>
-                      <span v-else class="empty-text">—</span>
-                    </template>
-                    <template v-else-if="column.dataIndex === 'action'">
-                      <a-upload
-                        :show-upload-list="false"
-                        :disabled="!maintenanceFlow.canUpload"
-                        :custom-request="(options) => uploadMaintenanceMaterial(options, record)"
-                      >
-                        <a-button size="small" :disabled="!maintenanceFlow.canUpload">
-                          {{ record.uploaded ? '重新上传' : '上传' }}
-                        </a-button>
-                      </a-upload>
-                    </template>
-                  </template>
-                </a-table>
-              </div>
-              <div class="maintenance-tracks" v-if="(maintenanceFlow.tracks || []).length">
-                <div class="sub-title">办理轨迹</div>
-                <a-timeline>
-                  <a-timeline-item v-for="(track, idx) in maintenanceFlow.tracks" :key="idx">
-                    <div class="track-action">{{ track.action }}</div>
-                    <div class="track-meta">{{ track.time ? fmtDate(track.time) : '—' }} · {{ track.actor || '—' }}</div>
-                    <div v-if="track.opinion" class="track-opinion">意见：{{ track.opinion }}</div>
-                  </a-timeline-item>
-                </a-timeline>
-              </div>
-            </div>
             <a-row :gutter="16">
               <a-col :span="14">
                 <div class="panel">
@@ -843,12 +311,6 @@ function nameInitial(name?: string) {
                     <a-descriptions-item label="项目目标" :span="2">{{ p.goal || '—' }}</a-descriptions-item>
                     <a-descriptions-item label="年度目标" :span="2">{{ currentAnnualGoal }}</a-descriptions-item>
                     <a-descriptions-item label="项目渠道" :span="2">{{ channelPath }}</a-descriptions-item>
-                    <a-descriptions-item label="渠道全周期流程" :span="2">
-                      <div class="flow-tags">
-                        <a-tag v-for="(t, i) in channelFlowNodes" :key="i" class="flow-tag">{{ t }}</a-tag>
-                        <span v-if="!channelFlowNodes.length">—</span>
-                      </div>
-                    </a-descriptions-item>
                     <a-descriptions-item label="成果转化">{{ transformStatusText }}</a-descriptions-item>
                     <a-descriptions-item label="协作单位">{{ partnerText }}</a-descriptions-item>
                   </a-descriptions>
@@ -858,11 +320,6 @@ function nameInitial(name?: string) {
                 <div class="panel">
                   <div class="panel-title-row">
                     <div class="panel-title">项目团队</div>
-                    <a-space :size="4">
-                      <a-button type="link" size="small" @click="openDeclareFlow">审批流转</a-button>
-                      <a-button type="link" size="small" @click="openImplementFlow">实施流转</a-button>
-                      <a-button type="link" size="small" @click="openAcceptFlow">验收流转</a-button>
-                    </a-space>
                   </div>
                   <div class="team-list">
                     <div v-for="(m, i) in teamFlat" :key="i" class="team-item">
@@ -881,9 +338,6 @@ function nameInitial(name?: string) {
 
           <a-tab-pane key="ms">
             <template #tab>里程碑 {{ msDone }}/{{ msTotal }}</template>
-            <div style="margin-bottom: 8px">
-              <a-button type="primary" ghost size="small" @click="openImplementFlow">查看实施阶段流转图</a-button>
-            </div>
             <a-table size="small" row-key="id" :pagination="false" :data-source="msList" :columns="msColumns">
               <template #bodyCell="{ column, record }">
                 <template v-if="['planDate', 'actualDate'].includes(column.dataIndex)">{{ fmtDate(record[column.dataIndex]) }}</template>
@@ -906,14 +360,14 @@ function nameInitial(name?: string) {
           <a-tab-pane key="fund" tab="经费">
             <a-row :gutter="16">
               <a-col :span="12">
-                <div style="font-weight: 600; margin-bottom: 8px">节点预算</div>
+                <div style="font-weight: 600; margin-bottom: 8px">项目预算</div>
                 <a-table
                   size="small"
                   row-key="id"
                   :pagination="false"
                   :data-source="data.budgets || []"
                   :columns="[
-                    { title: '里程碑', dataIndex: 'milestoneName' },
+                    { title: '年度', dataIndex: 'year' },
                     { title: '金额(万元)', dataIndex: 'amount', width: 120, align: 'right' },
                     { title: '状态', dataIndex: 'status', width: 100 },
                   ]"
@@ -952,9 +406,6 @@ function nameInitial(name?: string) {
 
           <a-tab-pane key="dv">
             <template #tab>交付物 {{ (data.deliverables || []).filter((d: any) => d.status === 'DELIVERED').length }}/{{ (data.deliverables || []).length }}</template>
-            <div style="margin-bottom: 8px">
-              <a-button type="primary" ghost size="small" @click="openAcceptFlow">查看项目验收流转</a-button>
-            </div>
             <a-table size="small" row-key="id" :pagination="false" :data-source="data.deliverables || []" :columns="dvColumns">
               <template #bodyCell="{ column, record }">
                 <template v-if="['dueDate', 'deliverDate'].includes(column.dataIndex)">{{ fmtDate(record[column.dataIndex]) }}</template>
@@ -983,9 +434,6 @@ function nameInitial(name?: string) {
 
           <a-tab-pane key="tf">
             <template #tab>成果转化 {{ (data.transforms || []).length }}</template>
-            <div style="margin-bottom: 8px">
-              <a-button type="primary" ghost size="small" @click="openTransformFlow">查看成果转化流转</a-button>
-            </div>
             <a-table
               size="small"
               row-key="id"
@@ -1028,7 +476,7 @@ function nameInitial(name?: string) {
                 { title: '类型', dataIndex: 'changeType', width: 100 },
                 { title: '标题', dataIndex: 'title', width: 220 },
                 { title: '状态', dataIndex: 'status', width: 100 },
-                { title: '当前节点', dataIndex: 'flowNode', width: 180 },
+
               ]"
             >
               <template #bodyCell="{ column, record }">
@@ -1069,92 +517,15 @@ function nameInitial(name?: string) {
             <ProjectVizPanel :data="data" :loading="loading" />
           </a-tab-pane>
         </a-tabs>
+        <section v-if="tabFiles.length" class="business-files" aria-label="业务附件">
+          <h3>已有材料</h3>
+          <div v-for="file in tabFiles" :key="file.id" class="business-file"><ReadonlyMaterialFile :file="file" /><small>{{file.fieldName}} · {{file.uploadedBy || '上传人未记录'}} · {{file.uploadedAt || '时间未记录'}}</small></div>
+        </section>
+        <a-alert v-if="supplementError" type="warning" :message="supplementError" show-icon />
+        <SupplementSummary v-if="approvedForTab.length" :project-id="id" :provided-sections="approvedForTab" />
       </a-card>
     </a-spin>
 
-    <!-- 节点下钻弹窗（居中，与生命周期其他节点一致） -->
-    <a-modal
-      v-model:open="drawerOpen"
-      :width="640"
-      :footer="null"
-      centered
-      destroy-on-close
-      :title="activeNode ? `${activeNode.nodeName} · 节点详情` : '节点详情'"
-    >
-      <template v-if="activeNode">
-        <a-alert type="info" show-icon :message="READONLY_FLOW_NOTICE" style="margin-bottom: 16px" />
-        <a-descriptions bordered size="small" :column="2" style="margin-bottom: 16px">
-          <a-descriptions-item label="节点">{{ activeNode.nodeName }}</a-descriptions-item>
-          <a-descriptions-item label="状态">
-            <a-tag v-if="activeNode.status === 'DONE'" color="success">已完成</a-tag>
-            <a-tag v-else-if="activeNode.status === 'TODO'" color="processing">待办</a-tag>
-            <a-tag v-else>未办理</a-tag>
-          </a-descriptions-item>
-          <a-descriptions-item label="负责人">{{ activeNode.ownerRole }} · {{ activeNode.ownerName }}</a-descriptions-item>
-          <a-descriptions-item label="下一办理">
-            <template v-if="activeNode.nextHandlerName">
-              {{ activeNode.nextHandlerRole }} · {{ activeNode.nextHandlerName }}
-            </template>
-            <template v-else>—</template>
-          </a-descriptions-item>
-        </a-descriptions>
-
-        <a-tabs>
-          <a-tab-pane key="detail" tab="详情">
-            <p style="color: #595959; line-height: 1.7">
-              本节点为平台级生命周期阶段「{{ activeNode.nodeName }}」。渠道内部子步骤见概览「渠道流程」标签；
-              具体业务单据与材料请从左侧任务栏进入对应功能页面办理。
-              <template v-if="activeNode.status === 'PENDING'">
-                当前为未办理预览，可先查看节点信息与办理路径，正式办理需待上一阶段完成后进行。
-              </template>
-            </p>
-            <a-tag color="blue">办理入口：左侧任务栏 / 对应功能页面</a-tag>
-          </a-tab-pane>
-          <a-tab-pane key="file" tab="附件">
-            <a-empty description="暂无附件（演示环境）" />
-          </a-tab-pane>
-          <a-tab-pane key="track" tab="办理轨迹">
-            <a-timeline>
-              <a-timeline-item v-for="(t, i) in activeNode.tracks || []" :key="i" :color="i === 0 ? 'blue' : 'gray'">
-                <div style="font-weight: 600">{{ t.action }}</div>
-                <div style="color: #8c8c8c; font-size: 12px">{{ t.time }} · {{ t.actor }}</div>
-                <div v-if="t.opinion">意见：{{ t.opinion }}</div>
-              </a-timeline-item>
-            </a-timeline>
-            <a-empty v-if="!(activeNode.tracks || []).length" description="暂无轨迹" />
-          </a-tab-pane>
-        </a-tabs>
-      </template>
-    </a-modal>
-
-    <a-modal
-      v-model:open="maintenanceAuditOpen"
-      :title="maintenanceAuditKind === 'unit' ? '本单位科技管理部负责人审核' : '总部主管审核'"
-      centered
-      @ok="confirmMaintenanceAudit"
-    >
-      <a-form layout="vertical">
-        <a-form-item label="审核结论">
-          <a-radio-group v-model:value="maintenanceAuditForm.pass">
-            <a-radio :value="true">通过</a-radio>
-            <a-radio :value="false">退回</a-radio>
-          </a-radio-group>
-        </a-form-item>
-        <a-form-item label="审核意见">
-          <a-textarea
-            v-model:value="maintenanceAuditForm.opinion"
-            :rows="4"
-            placeholder="请输入审核意见，将写入办理轨迹"
-          />
-        </a-form-item>
-      </a-form>
-    </a-modal>
-
-    <DeclareFlowDialog v-model:open="flowOpen" :opts="declareFlowOpts" />
-    <FilingFlowDialog v-model:open="filingFlowOpen" :opts="filingFlowOpts" />
-    <ImplementFlowDialog v-model:open="implementFlowOpen" :opts="implementFlowOpts" />
-    <AcceptFlowDialog v-model:open="acceptFlowOpen" :opts="acceptFlowOpts" :overview="data" />
-    <TransformFlowDialog v-model:open="transformFlowOpen" :opts="transformFlowOpts" :overview="data" />
   </div>
 </template>
 
@@ -1261,113 +632,49 @@ function nameInitial(name?: string) {
 }
 
 .lifecycle-wrap {
-  background: #fff;
-  border: 1px solid #e8e8e8;
-  border-radius: 4px;
-  padding: 16px 20px 20px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  border: 1px solid #e6f0ff;
+  border-radius: 10px;
+  padding: 14px 18px 16px;
   margin-bottom: 16px;
+  box-shadow: 0 6px 18px rgba(0, 39, 102, 0.04);
 }
 .lifecycle-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 .lifecycle-title {
   font-weight: 600;
-  font-size: 15px;
+  font-size: 16px;
   color: #262626;
 }
 .lifecycle-hint {
   font-size: 12px;
   color: #8c8c8c;
 }
-.lifecycle-track {
-  display: flex;
-  align-items: stretch;
-  gap: 0;
-  overflow-x: auto;
-}
-.life-node {
-  flex: 1;
-  min-width: 148px;
-  border: 1px solid #e8e8e8;
-  border-radius: 4px;
-  padding: 12px 16px;
-  background: #fafafa;
-  cursor: pointer;
-  transition: border-color 0.2s, box-shadow 0.2s;
-}
-.life-node:hover {
-  border-color: #91caff;
-}
-.life-node.done {
-  background: #f6ffed;
-  border-color: #d9f7be;
-}
-.life-node.todo {
-  background: #fff;
-  border: 2px solid #0064ef;
-  box-shadow: 0 0 0 2px rgba(0, 100, 239, 0.08);
-  min-width: 176px;
-}
-.life-node.pending {
-  background: #fafafa;
-}
-.node-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-.node-seq {
-  font-size: 12px;
-  color: #8c8c8c;
-  font-variant-numeric: tabular-nums;
-}
-.node-name {
-  font-weight: 600;
-  font-size: 14px;
-  color: #262626;
-  flex: 1;
-  min-width: 0;
-}
-.node-tag {
-  margin-inline-end: 0;
-}
-.node-check {
-  color: #52c41a;
-  font-size: 16px;
-}
-.node-body {
-  font-size: 12px;
-  color: #595959;
-  line-height: 1.6;
-}
-.node-body .owner {
-  color: #262626;
-}
-.node-body .sub {
-  color: #8c8c8c;
-  margin-top: 2px;
-}
-.node-body .hint {
-  margin-top: 8px;
-  color: #0064ef;
-}
-.node-connector {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  flex-shrink: 0;
-  color: #bfbfbf;
-  font-size: 10px;
-}
+.lifecycle-track { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px; }
+.life-cycle { position:relative;min-width:0;border:1px solid #e2e8f0;border-radius:8px;padding:14px 16px;background:#fff; }
+.life-cycle:not(:last-child)::after {content:'→';position:absolute;right:-17px;top:45%;color:#98a9bd;}
+.life-cycle.current {border-color:#91caff;background:#f5faff;}
+.life-cycle.done {border-color:#c9e6b9;}
+.life-cycle.selected {box-shadow:inset 0 -3px #1677ff;}
+.cycle-head {display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;}
+.cycle-head h2 {font-size:16px;font-weight:600;margin:0;}
+.cycle-head h2 span {font-size:12px;color:#78889a;margin-right:8px;}
+.cycle-head .ant-tag {margin:0;white-space:normal;}
+.material-count {font-size:13px;margin:12px 0 6px;color:#46566c;}
+.stage-owner {font-size:12px;color:#697586;margin:0 0 8px;}
+@media(max-width:760px){.lifecycle-track{grid-template-columns:1fr}.life-cycle:not(:last-child)::after{display:none}.lifecycle-head{gap:8px;flex-wrap:wrap}}
 
 .detail-card {
   border-radius: 4px;
 }
+.business-files {margin-top:16px;border-top:1px solid #e5eaf1;padding-top:12px;}
+.business-files h3 {font-size:14px;font-weight:600;}
+.business-file {padding:8px 0;border-bottom:1px solid #f0f0f0;}
+.business-file small {display:block;color:#78889a;font-size:12px;}
 .maintenance-panel {
   border: 1px solid #ffd591;
   background: #fffaf0;
@@ -1560,3 +867,4 @@ function nameInitial(name?: string) {
   }
 }
 </style>
+

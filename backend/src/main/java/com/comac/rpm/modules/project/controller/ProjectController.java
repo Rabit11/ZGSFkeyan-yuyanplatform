@@ -76,6 +76,11 @@ import java.util.stream.Stream;
 @RestController
 @RequestMapping("/api/projects")
 public class ProjectController {
+    @Autowired private com.comac.rpm.modules.supplement.SupplementTemplateService materialTemplates;
+    @Autowired private org.springframework.jdbc.core.JdbcTemplate materialJdbc;
+    @Autowired private com.comac.rpm.modules.file.MinioStorageService materialStorage;
+    @Autowired private com.comac.rpm.modules.dict.mapper.ProjChannelMapper materialChannelMapper;
+
     private static final DateTimeFormatter PROJECT_NO_DATE_FMT = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final String DATA_SOURCE_FORM_MAINT = "FORM_MAINT";
     private static final String MAINT_BIZ_TYPE = "FORM_MAINT_MAINTENANCE";
@@ -441,9 +446,18 @@ public class ProjectController {
      */
     @GetMapping("/{id}/overview")
     public R<Map<String, Object>> overview(@PathVariable("id") Long id) {
+        transformAccess.requireReadable(id);
         Map<String, Object> map = new HashMap<>();
         ProjInfo project = detail(id).getData();
+        if (project == null) throw new com.comac.rpm.common.BusinessException(404, "项目不存在");
         map.put("project", project);
+        var channel = project.getChannelId() == null ? null : materialChannelMapper.selectById(project.getChannelId());
+        map.put("channel", channel);
+        map.put("materialChannelResolved", com.comac.rpm.modules.supplement.SupplementCatalog.resolved(project, channel));
+        map.put("materialSections", materialTemplates.apply(project, channel,
+                com.comac.rpm.modules.supplement.SupplementCatalog.sections(project, channel)));
+        map.put("projectMaterials", projectMaterials(id));
+        map.put("acceptanceMaterials", materialJdbc.queryForList("SELECT i.id,i.field_code AS fieldCode,i.material_name AS fieldName,i.material_name AS fileName,i.file_url AS fileUrl,i.status FROM proj_acceptance_item i JOIN proj_acceptance a ON a.id=i.acceptance_id WHERE a.project_id=? AND i.file_url IS NOT NULL AND i.file_url<>''", id));
         List<ProjMilestone> milestones = milestoneMapper.selectList(
                 new LambdaQueryWrapper<ProjMilestone>().eq(ProjMilestone::getProjectId, id)
                         .orderByAsc(ProjMilestone::getPlanDate));
@@ -490,6 +504,46 @@ public class ProjectController {
             map.put("maintenanceFlow", maintenanceFlow(project, maintenanceMaterials));
         }
         return R.ok(map);
+    }
+
+    /** Read material identities through exact project/record relationships, never by project name. */
+    private List<Map<String,Object>> projectMaterials(Long id) {
+        String columns = "m.id,m.field_code AS fieldCode,m.field_name AS fieldName,m.file_name AS fileName,m.file_url AS storageUrl,m.version,m.uploaded_by AS uploadedBy,m.uploaded_at AS uploadedAt";
+        List<Map<String,Object>> result = new ArrayList<>();
+        Map<String,String> associations = Map.of("MILESTONE","proj_milestone", "EVALUATION","proj_evaluation");
+        for (var association : associations.entrySet()) {
+            var records = materialJdbc.queryForList("SELECT " + columns + " FROM proj_material m JOIN " + association.getValue() + " b ON b.id=m.biz_id WHERE m.biz_type=? AND b.project_id=? AND m.file_name IS NOT NULL", association.getKey(), id);
+            records.forEach(f -> f.put("sectionKey", "MILESTONE".equals(association.getKey()) ? "milestone" : "inspection"));
+            result.addAll(records);
+        }
+        var declarationFiles = materialJdbc.queryForList("SELECT DISTINCT " + columns + " FROM proj_material m JOIN proj_filing f ON f.declaration_id=m.biz_id WHERE m.biz_type='DECLARATION' AND f.project_id=? AND m.file_name IS NOT NULL", id);
+        declarationFiles.forEach(f -> f.put("sectionKey", Objects.toString(f.get("fieldCode"), "").toUpperCase().startsWith("F_") || Objects.toString(f.get("fieldCode"), "").toUpperCase().startsWith("FILING") ? "filing" : "declare"));
+        result.addAll(declarationFiles);
+        var legacy = materialJdbc.queryForList("SELECT " + columns + " FROM proj_material m WHERE m.biz_type='FORM_MAINT_MAINTENANCE' AND m.biz_id=? AND m.file_name IS NOT NULL", id);
+        legacy.forEach(f -> f.put("sectionKey", "filing"));
+        result.addAll(legacy);
+        for (var file : result) {
+            file.put("url", "/api/projects/" + id + "/materials/" + file.get("id") + "/download");
+        }
+        return result;
+    }
+
+    @GetMapping("/{id}/materials/{materialId}/download")
+    public void downloadProjectMaterial(@PathVariable Long id, @PathVariable Long materialId,
+            jakarta.servlet.http.HttpServletResponse response) throws Exception {
+        transformAccess.requireReadable(id); // Same project read scope as the overview, checked again for every download.
+        var file = projectMaterials(id).stream().filter(f -> Objects.equals(((Number)f.get("id")).longValue(), materialId))
+                .findFirst().orElseThrow(() -> new com.comac.rpm.common.BusinessException(404, "项目附件不存在"));
+        String url = Objects.toString(file.get("storageUrl"), "");
+        String prefix = "/api/files/download?objectKey=";
+        if (!url.startsWith(prefix)) throw new com.comac.rpm.common.BusinessException(400, "历史附件地址需核对");
+        String key = java.net.URLDecoder.decode(url.substring(prefix.length()), java.nio.charset.StandardCharsets.UTF_8);
+        if (key.startsWith("supplement-private/") || key.startsWith("transform-private/"))
+            throw new com.comac.rpm.common.BusinessException(403, "请使用对应材料授权入口");
+        response.setContentType("application/octet-stream");
+        response.setHeader("X-Content-Type-Options", "nosniff");
+        response.setHeader("Content-Disposition", "attachment; filename*=UTF-8''" + java.net.URLEncoder.encode(Objects.toString(file.get("fileName"), "附件"), java.nio.charset.StandardCharsets.UTF_8));
+        try (var stream = materialStorage.download(key)) { org.springframework.util.StreamUtils.copy(stream, response.getOutputStream()); }
     }
 
     /** 待维护材料：当前登录人的待审核项目。 */
@@ -1086,3 +1140,5 @@ public class ProjectController {
                         && !"PLAN_TEMPLATE".equalsIgnoreCase(material.getFieldCode()));
     }
 }
+
+

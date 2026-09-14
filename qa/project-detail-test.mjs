@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import {createRequire} from 'node:module';
+const require=createRequire(path.resolve('frontend/package.json'));
+const esbuild=require('esbuild');
+const target='frontend/src/utils/projectDetailPresentation.ts';
+assert.ok(fs.existsSync(target),'缺少三阶段材料展示逻辑');
+const {code}=esbuild.transformSync(fs.readFileSync(target,'utf8'),{loader:'ts',format:'esm'});
+const m=await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'));
+assert.deepEqual(m.detailStages('IMPLEMENTING').map(s=>s.name),['立项备案','实施阶段','验收转化']);
+assert.equal(m.sourceLabel('FORM_MAINT'),'表单导入');
+assert.equal(m.sourceLabel(undefined),'来源待确认');
+assert.equal(m.detailStages('ACCEPTED')[2].status,'current');
+assert.equal(m.detailStages('MYSTERY')[0].status,'unknown');
+const sections=[{key:'filing',stage:'FILING',materials:[{code:'a',name:'备案',required:true}]},{key:'acceptance',stage:'ACCEPT',materials:[{code:'b',name:'验收',required:true}]}];
+const rows=m.materialRows(sections,'IMPLEMENTING');
+assert.equal(rows[0].state,'missing'); assert.equal(rows[1].state,'future');
+const uploaded=m.materialRows([{key:'filing',stage:'FILING',materials:[{code:'a',required:true,files:[{id:1}]}]}],'IMPLEMENTING');
+assert.notEqual(uploaded[0].state,'complete','上传不应直接成为审核通过');
+assert.equal(m.sectionTab('team'),'overview'); assert.equal(m.sectionTab('fund'),'fund'); assert.equal(m.sectionTab('transform'),'tf');
+console.log('PASS: three stages, source, unknown states, historic missing, future materials, review distinction, business tab mapping');
+
