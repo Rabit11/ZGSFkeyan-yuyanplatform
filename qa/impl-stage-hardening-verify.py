@@ -56,6 +56,14 @@ dept = login('100016')       # 项目承担部门负责人 韩承泽
 hq = login('100004')         # 总部科研项目主管 何雨桐
 admin = login('100001')
 
+# 开跑前清理：若基本信息草稿仍在审批中（上一轮残留），由当前节点办理人退回，保证脚本可重复执行
+for _ in range(4):
+    d0 = call('GET', '/api/projects/2/basic-draft', owner).get('data') or {}
+    if d0.get('status') != 'APPROVING':
+        break
+    actor = {'PROJECT_LEADER': owner, 'UNIT_TECH': unit, 'UNIT_LEADER': unit, 'HQ': hq}.get(d0.get('flowNode'))
+    call('POST', '/api/projects/2/basic-draft/audit', actor, {'pass': False, 'opinion': '验证前清理：退回残留草稿'})
+
 # 找项目 2 的里程碑；为逾期流程新建一个无佐证的逾期节点（计划日期在项目周期内但已过）
 import datetime
 STAMP = datetime.datetime.now().strftime('%H%M%S')
@@ -204,6 +212,80 @@ check('F05 负责人不能自审单位科技管理部节点', r.get('code') == 4
 # 由真正的单位负责人退回，恢复状态
 r = call('POST', '/api/projects/2/basic-draft/audit', unit, {'pass': False, 'opinion': '拟议岗位不合规，退回'})
 check('F05 单位负责人可退回该草稿', r.get('code') == 0, r)
+
+# ---- GPT 隔离用例在真实平台复跑（RV-02/08/14/16/17/18/19 + 数据范围 UI-02）
+# RV-02：基本信息退回 → 原人修改 → 重提 → 可继续审批
+payload2 = dict(payload)
+payload2['goal'] = (p.get('goal') or '').split('【审批补充')[0] + '【RV02-' + STAMP + '】'
+r = call('PUT', '/api/projects/2/basic-draft', owner, payload2)
+r = call('POST', '/api/projects/2/basic-draft/submit', owner)
+r = call('POST', '/api/projects/2/basic-draft/audit', owner, {'pass': False, 'opinion': '请补充目标'})
+d = call('GET', '/api/projects/2/basic-draft', owner)['data']
+check('RV-02 项目负责人退回 → REJECTED 且可再编辑', r.get('code') == 0 and d['status'] == 'REJECTED' and d['canEdit'], (r, d.get('status')))
+r = call('PUT', '/api/projects/2/basic-draft', owner, payload2)
+r2 = call('POST', '/api/projects/2/basic-draft/submit', owner)
+d = call('GET', '/api/projects/2/basic-draft', owner)['data']
+check('RV-02 退回后修改重提 → 重新进入负责人节点', r.get('code') == 0 and r2.get('code') == 0 and d['status'] == 'APPROVING' and d['flowNode'] == 'PROJECT_LEADER', (r, r2, d.get('flowNode')))
+trail = d.get('auditTrail') or []
+check('RV-02 审批记录含退回与二次提交', any(x.get('pass') is False for x in trail) and sum(1 for x in trail if x.get('node') == 'SUBMIT') >= 2, trail)
+for actor in (owner, unit, hq):
+    call('POST', '/api/projects/2/basic-draft/audit', actor, {'pass': True, 'opinion': 'RV02 通过'})
+d = call('GET', '/api/projects/2/basic-draft', owner)['data']
+check('RV-02 重提后四级走完 APPROVED', d['status'] == 'APPROVED', d.get('status'))
+check('RV-03 分管领导缺岗有系统留痕（当前口径跳过）', any(x.get('node') == 'UNIT_LEADER' and '未配置' in str(x.get('opinion')) for x in (d.get('auditTrail') or [])), d.get('auditTrail'))
+
+# 2027 年度用于清单前置约束测试（当年无清单记录）
+r = call('POST', '/api/milestones', owner, {'projectId': 2, 'name': 'RV前置-' + STAMP, 'planDate': '2026-12-20', 'budget': 1, 'year': 2027})
+check('RV 前置：新增 2027 年度节点', r.get('code') == 0, r)
+n2027 = r.get('data')
+if n2027:
+    # RV-08：计划模板不能充作完成佐证；RV-14：清单未存档不得销项
+    r = call('POST', '/api/milestones/%d/materials' % n2027, owner, {'objectKey': up['data']['objectKey'], 'fieldCode': 'PLAN_TEMPLATE', 'fileName': 'template.txt', 'fileUrl': up['data']['fileUrl'], 'fileSize': 13})
+    r = call('POST', '/api/milestones/%d/close' % n2027, owner, {})
+    check('RV-14/08 清单未存档且仅有模板 → 销项被拒', r.get('code') != 0 and ('存档' in r.get('msg', '') or '佐证' in r.get('msg', '')), r)
+    # RV-17：年度目标为空不能提交清单（先把上一轮残留的 2027 目标清空）
+    call('PUT', '/api/projects/2/annual-plan', owner, {'year': 2027, 'annualGoal': '', 'planContent': ''})
+    r = call('POST', '/api/projects/2/annual-plan/submit', owner, {'year': 2027})
+    check('RV-17 年度目标为空不能提交清单审核', r.get('code') != 0 and '目标' in r.get('msg', ''), r)
+    r = call('PUT', '/api/projects/2/annual-plan', owner, {'year': 2027, 'annualGoal': 'RV 年度目标', 'planContent': 'RV'})
+    r = call('POST', '/api/projects/2/annual-plan/submit', owner, {'year': 2027})
+    check('RV-17 填写目标后可提交清单审核', r.get('code') == 0, r)
+    # RV-18：清单审核中不能新增节点
+    r = call('POST', '/api/milestones', owner, {'projectId': 2, 'name': 'RV审核中新增-' + STAMP, 'planDate': '2026-12-21', 'budget': 1, 'year': 2027})
+    check('RV-18 清单审核中新增节点被拒', r.get('code') != 0 and '审核' in r.get('msg', ''), r)
+    # 清理：退回 2027 清单并删除节点
+    r = call('POST', '/api/milestones/annual-plan/audit?projectId=2&year=2027', unit, {'pass': False, 'remark': 'RV 清理'})
+    r = call('DELETE', '/api/milestones/%d' % n2027, owner)
+    check('RV 清理：退回 2027 清单并删除测试节点', r.get('code') == 0, r)
+
+# RV-16：已完成节点材料禁止改动（用前面已 DONE 的逾期验证节点）
+r = call('POST', '/api/milestones/%d/materials' % overdue['id'], owner, {'objectKey': up['data']['objectKey'], 'fileName': 'late.txt', 'fileUrl': up['data']['fileUrl'], 'fileSize': 13})
+check('RV-16 已完成节点材料禁止改动', r.get('code') != 0 and '归档' in r.get('msg', ''), r)
+
+# RV-19：销项退回后补正重提（新建节点走一遍：提交 → 部门退回 → 重提 → 两级通过）
+r = call('POST', '/api/milestones', owner, {'projectId': 2, 'name': 'RV19-' + STAMP, 'planDate': '2026-12-15', 'budget': 1, 'year': 2026})
+n19 = r.get('data')
+if n19:
+    call('POST', '/api/milestones/%d/materials' % n19, owner, {'objectKey': up['data']['objectKey'], 'fileName': 'rv19.txt', 'fileUrl': up['data']['fileUrl'], 'fileSize': 13})
+    r = call('POST', '/api/milestones/%d/close' % n19, owner, {})
+    check('RV-19 提交销项', r.get('code') == 0, r)
+    r = call('POST', '/api/milestones/%d/close-audit' % n19, dept, {'pass': False, 'remark': '材料不全'})
+    m = call('GET', '/api/milestones/%d' % n19, owner)['data']
+    check('RV-19 部门退回 → 回到 DOING 并记意见', r.get('code') == 0 and m['status'] == 'DOING' and m.get('auditOpinion') == '材料不全', (r, m.get('status'), m.get('auditOpinion')))
+    r = call('POST', '/api/milestones/%d/close' % n19, owner, {})
+    r1 = call('POST', '/api/milestones/%d/close-audit' % n19, dept, {'pass': True})
+    r2 = call('POST', '/api/milestones/%d/close-audit' % n19, unit, {'pass': True})
+    m = call('GET', '/api/milestones/%d' % n19, owner)['data']
+    check('RV-19 重提后两级通过 → DONE', r.get('code') == 0 and r1.get('code') == 0 and r2.get('code') == 0 and m['status'] == 'DONE', (r, r1, r2, m.get('status')))
+
+# UI-02：项目团队成员在项目列表里能看到本人关联项目（不再是 0 项）
+for no, label in (('100013', '项目联系人'), ('100014', '技术负责人'), ('100015', '项目主管'), ('100007', '一级总师')):
+    tk = login(no)
+    lst = call('GET', '/api/projects?page=1&size=50', tk)['data']
+    ids = [x['id'] for x in lst.get('records', [])]
+    check('UI-02 %s 列表含本人关联项目 1、2' % label, 1 in ids and 2 in ids, ids)
+    lst2 = call('GET', '/api/projects?page=1&size=50&orgId=10', tk)['data']
+    check('F01 %s 传 orgId 不能扩大范围' % label, set(x['id'] for x in lst2.get('records', [])) <= set(ids), [x['id'] for x in lst2.get('records', [])])
 
 # 12. 数据范围
 mine = call('GET', '/api/milestones/mine', owner)['data']
