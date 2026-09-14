@@ -160,7 +160,8 @@ function resolveAction(
     return { people, labels, can: true, reason: '', pending }
   }
   if (isAdmin(user)) {
-    return { people, labels, can: true, reason: people.length ? `运维代办（指定办理人：${labels}）` : '', pending }
+    // 需求 V19.1：超级管理员仅做权限配置与运维，禁止直接修改业务数据
+    return { people, labels, can: false, reason: `超级管理员只做运维配置，不能${verb}${labels ? `（办理人：${labels}）` : ''}`, pending }
   }
   if (people.length) {
     return {

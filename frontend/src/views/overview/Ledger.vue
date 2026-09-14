@@ -744,9 +744,14 @@ onMounted(async () => {
       </div>
 
       <div class="summary-bar">
-        <span>共 <strong>{{ filteredRows.length }}</strong> 项</span>
-        <a-divider type="vertical" />
-        <span>经费合计 <strong>{{ fmtAmount(totalFund) }}</strong> 万元</span>
+        <template v-if="loading && !filteredRows.length">
+          <span class="summary-loading">正在加载项目…</span>
+        </template>
+        <template v-else>
+          <span>共 <strong>{{ filteredRows.length }}</strong> 项</span>
+          <a-divider type="vertical" />
+          <span>经费合计 <strong>{{ fmtAmount(totalFund) }}</strong> 万元</span>
+        </template>
         <span class="summary-spacer" />
         <button
           v-for="color in (['RED', 'YELLOW', 'BLUE', 'GREEN'] as ColorStatus[])"
@@ -770,7 +775,8 @@ onMounted(async () => {
         :pagination="false"
         :scroll="{ x: 2480, y: 'calc(100vh - 320px)' }"
         :custom-row="(record: LedgerRow) => ({ onClick: () => openView(record) })"
-        class="ledger-table"
+        class="ledger-table clickable-rows"
+        :locale="{ emptyText: loading ? '正在加载项目…' : '没有符合筛选条件的项目' }"
       >
         <a-table-column title="项目名称" data-index="name" :width="300" fixed="left">
           <template #default="{ record }">

@@ -122,6 +122,8 @@ public class ProjectController {
     @Autowired
     private FlowAuditGuard flowAuditGuard;
     @Autowired
+    private com.comac.rpm.modules.milestone.controller.MilestoneController milestoneController;
+    @Autowired
     private SysAuditLogMapper auditLogMapper;
     @Autowired
     private SysUserMapper userMapper;
@@ -417,6 +419,7 @@ public class ProjectController {
         if (info == null) {
             return R.fail("项目不存在");
         }
+        flowAuditGuard.requireProjectAccess(id);
         info.setParticipants(participantMapper.selectList(
                 new LambdaQueryWrapper<ProjParticipant>().eq(ProjParticipant::getProjectId, id)
                         .orderByAsc(ProjParticipant::getSort)));
@@ -437,20 +440,11 @@ public class ProjectController {
      */
     @GetMapping("/{id}/overview")
     public R<Map<String, Object>> overview(@PathVariable("id") Long id) {
+        flowAuditGuard.requireProjectAccess(id);
         Map<String, Object> map = new HashMap<>();
         ProjInfo project = detail(id).getData();
         map.put("project", project);
-        List<ProjMilestone> milestones = milestoneMapper.selectList(
-                new LambdaQueryWrapper<ProjMilestone>().eq(ProjMilestone::getProjectId, id)
-                        .orderByAsc(ProjMilestone::getPlanDate));
-        for (ProjMilestone milestone : milestones) {
-            List<ProjMaterial> materials = materialMapper.selectList(new LambdaQueryWrapper<ProjMaterial>()
-                    .eq(ProjMaterial::getBizType, "MILESTONE")
-                    .eq(ProjMaterial::getBizId, milestone.getId())
-                    .orderByDesc(ProjMaterial::getUploadedAt));
-            milestone.setMaterials(materials);
-            milestone.setEvidence(hasCompletionEvidence(materials) ? 1 : 0);
-        }
+        List<ProjMilestone> milestones = milestoneController.decoratedMilestonesOf(id);
         map.put("milestones", milestones);
         map.put("plans", planMapper.selectList(
                 new LambdaQueryWrapper<ProjPlan>().eq(ProjPlan::getProjectId, id)
@@ -830,8 +824,11 @@ public class ProjectController {
      * 新增项目（系统自动生成项目编号）
      */
     @PostMapping
+    @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
     public R<Long> create(@RequestBody ProjInfo body) {
+        flowAuditGuard.requireLedgerEditor("新增台账项目");
         body.setId(null);
+        body.setDeleted(null);
         body.setProjectNo(nextProjectNo());
         if (body.getWarnColor() == null) {
             body.setWarnColor("BLUE");
@@ -871,6 +868,7 @@ public class ProjectController {
      * 更新项目
      */
     @PutMapping("/{id}")
+    @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
     public R<Boolean> update(@PathVariable("id") Long id, @RequestBody ProjInfo body) {
         ProjInfo existing = projInfoMapper.selectById(id);
         if (existing == null) return R.fail(404, "项目不存在或已删除");
@@ -878,9 +876,17 @@ public class ProjectController {
                 && !"FILING".equals(body.getStatus())) {
             return R.fail(403, "立项备案状态只能通过总部备案审核流转，不能直接编辑");
         }
-        flowAuditGuard.requireActors(id, "完善项目基本信息/台账编辑",
-                "owner", "contactLogin", "techLead", "projectPm",
-                "unitHead", "unitStaff", "hqHead", "hqStaff");
+        // 项目团队不得直接改台账：必须通过「项目基本信息」草稿 → 四级审批（BasicDraftController）
+        flowAuditGuard.requireLedgerEditor("台账编辑");
+        flowAuditGuard.requireProjectAccess(id);
+        // 系统字段不允许通过接口覆写
+        body.setDeleted(null);
+        body.setCreateBy(existing.getCreateBy());
+        body.setCreateByName(existing.getCreateByName());
+        body.setCreatedAt(null);
+        body.setWarnColor(existing.getWarnColor());
+        body.setOrgId(existing.getOrgId());
+        body.setOrgName(existing.getOrgName());
         body.setId(id);
         if (body.getDataSource() == null || body.getDataSource().isBlank()) {
             body.setDataSource(existing.getDataSource());
@@ -946,10 +952,12 @@ public class ProjectController {
 
     /** 年初编制/更新本年度目标，里程碑清单由里程碑接口按项目与年度实时汇总。 */
     @PutMapping("/{id}/annual-plan")
+    @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
     public R<Long> saveAnnualPlan(@PathVariable("id") Long id, @RequestBody ProjAnnualPlan body) {
         if (projInfoMapper.selectById(id) == null) {
             return R.fail("项目不存在");
         }
+        flowAuditGuard.requireActors(id, "编制年度目标", "techLead", "owner", "contactLogin", "projectPm");
         body.setProjectId(id);
         if (body.getYear() == null) {
             body.setYear(java.time.LocalDate.now().getYear());
@@ -959,18 +967,62 @@ public class ProjectController {
                         .eq(ProjAnnualPlan::getProjectId, id)
                         .eq(ProjAnnualPlan::getYear, body.getYear())
                         .last("LIMIT 1"));
+        if (current != null && "PENDING_AUDIT".equals(current.getFinishStatus())) {
+            return R.fail(403, "年度清单正在审核中，审核结束前不能修改年度目标");
+        }
+        // 审核状态只能由提交/审核接口流转，不接受前端直写
         if (current == null) {
             body.setId(null);
-            if (body.getFinishStatus() == null) body.setFinishStatus("DOING");
-            if (body.getColorStatus() == null) body.setColorStatus("BLUE");
+            body.setFinishStatus("DOING");
+            body.setColorStatus("BLUE");
             annualPlanMapper.insert(body);
         } else {
             body.setId(current.getId());
-            if (body.getFinishStatus() == null) body.setFinishStatus(current.getFinishStatus());
-            if (body.getColorStatus() == null) body.setColorStatus(current.getColorStatus());
+            body.setFinishStatus(current.getFinishStatus());
+            body.setColorStatus(current.getColorStatus());
             annualPlanMapper.updateById(body);
         }
+        auditLogMapper.write("MILESTONE", "UPDATE", "ANNUAL_PLAN", body.getId(), "编制年度目标（" + body.getYear() + "）");
         return R.ok(body.getId());
+    }
+
+    /** 年度清单提交审核：至少一个里程碑；进入 PENDING_AUDIT，由单位科技部门审核存档。 */
+    @PostMapping("/{id}/annual-plan/submit")
+    @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
+    public R<Boolean> submitAnnualPlan(@PathVariable("id") Long id, @RequestBody(required = false) Map<String, Object> body) {
+        ProjInfo project = projInfoMapper.selectById(id);
+        if (project == null) {
+            return R.fail("项目不存在");
+        }
+        flowAuditGuard.requireActors(id, "提交年度里程碑清单审核", "techLead", "owner", "contactLogin", "projectPm");
+        int year = body == null || body.get("year") == null ? java.time.LocalDate.now().getYear()
+                : Integer.parseInt(String.valueOf(body.get("year")));
+        long count = milestoneMapper.selectCount(new LambdaQueryWrapper<ProjMilestone>()
+                .eq(ProjMilestone::getProjectId, id).eq(ProjMilestone::getYear, year));
+        if (count == 0) {
+            return R.fail("请先编制至少一个里程碑节点再提交审核");
+        }
+        ProjAnnualPlan current = annualPlanMapper.selectOne(new LambdaQueryWrapper<ProjAnnualPlan>()
+                .eq(ProjAnnualPlan::getProjectId, id).eq(ProjAnnualPlan::getYear, year).last("LIMIT 1"));
+        if (current == null) {
+            current = new ProjAnnualPlan();
+            current.setProjectId(id);
+            current.setYear(year);
+            current.setFinishStatus("PENDING_AUDIT");
+            current.setColorStatus("BLUE");
+            annualPlanMapper.insert(current);
+        } else {
+            if ("PENDING_AUDIT".equals(current.getFinishStatus())) {
+                return R.fail("年度清单已在审核中");
+            }
+            ProjAnnualPlan patch = new ProjAnnualPlan();
+            patch.setId(current.getId());
+            patch.setFinishStatus("PENDING_AUDIT");
+            annualPlanMapper.updateById(patch);
+        }
+        auditLogMapper.write("MILESTONE", "SUBMIT", "ANNUAL_PLAN", current.getId(),
+                "提交年度里程碑清单审核：" + project.getName() + "（" + year + "，" + count + " 个节点）");
+        return R.ok(true);
     }
 
     /** 表单维护/台账同步：负责人写入项目团队 */
@@ -1080,6 +1132,7 @@ public class ProjectController {
      */
     @PostMapping("/{id}/submit")
     public R<Boolean> submit(@PathVariable("id") Long id) {
+        flowAuditGuard.requireActors(id, "提交备案", "owner", "contactLogin", "techLead", "projectPm", "unitHead", "unitStaff");
         ProjInfo info = new ProjInfo();
         info.setId(id);
         info.setStatus("DECLARING");
@@ -1110,9 +1163,12 @@ public class ProjectController {
                 new LambdaQueryWrapper<ProjPlan>().eq(ProjPlan::getProjectId, id))) {
             colors.add(ColorUtil.calcCode(p.getDueDate(), "DONE".equals(p.getPlanType())));
         }
+        flowAuditGuard.requireProjectAccess(id);
         info.setWarnColor(ColorUtil.worstCode(colors));
-        if ("RED".equals(info.getWarnColor())) {
+        if ("RED".equals(info.getWarnColor()) && "IMPLEMENTING".equals(info.getStatus())) {
             info.setStatus("DELAYED");
+        } else if (!"RED".equals(info.getWarnColor()) && "DELAYED".equals(info.getStatus())) {
+            info.setStatus("IMPLEMENTING");
         }
         projInfoMapper.updateById(info);
         return R.ok(info);
@@ -1144,8 +1200,13 @@ public class ProjectController {
         if (warnColor != null && !warnColor.isEmpty()) {
             w.eq(ProjInfo::getWarnColor, warnColor);
         }
-        if (!UserContext.isHeadquarter()) {
-            w.eq(ProjInfo::getOrgId, UserContext.getOrgId());
+        SysUser viewer = currentUserOrNull();
+        if (!hasCompanyLedgerScope(viewer)) {
+            if (isProjectTeamLedgerScope(viewer)) {
+                applyProjectOwnerScope(w, viewer);
+            } else {
+                applyOrgScope(w, UserContext.getOrgId());
+            }
         }
         return R.ok(projInfoMapper.selectList(w));
     }
