@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   AppstoreOutlined,
@@ -34,6 +34,7 @@ const unread = ref(0)
 const searchKw = ref('')
 const auditPopupOpen = ref(false)
 const auditPopupAck = ref('')
+let pendingRefreshTimer: ReturnType<typeof setInterval> | undefined
 
 const financeIdentity = computed(() => userStore.identityCode || '')
 const isUnitFinance = computed(() => ['finHead', 'finStaff'].includes(financeIdentity.value))
@@ -282,11 +283,25 @@ function goAllAuditTasks() {
 watch(
   () => userStore.identityCode,
   async (identityCode) => {
+    if (pendingRefreshTimer) {
+      clearInterval(pendingRefreshTimer)
+      pendingRefreshTimer = undefined
+    }
     await pendingStore.loadDeclarationReviews(identityCode)
     maybeOpenAuditPopup()
+    if (identityCode) {
+      pendingRefreshTimer = setInterval(() => {
+        void pendingStore.loadDeclarationReviews(userStore.identityCode)
+      }, 30_000)
+    }
   },
   { immediate: true },
 )
+
+onUnmounted(() => {
+  if (pendingRefreshTimer) clearInterval(pendingRefreshTimer)
+  pendingRefreshTimer = undefined
+})
 
 watch(
   () => pendingStore.auditPopupSignature,

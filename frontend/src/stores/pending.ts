@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia'
 import { declarationApi, fundApi, milestoneApi, projectApi } from '@/api/modules'
 import { useUserStore } from '@/stores/user'
-import { canActOnHandlers, canAuditByIdentity } from '@/utils/flowActor'
 
 export type PendingAuditTask = {
   key: string
@@ -45,35 +44,6 @@ async function loadFundReviewRows(user: ReturnType<typeof useUserStore>): Promis
     if (row.mode === 'budget' && row.node.includes('总部')) return canHqFund
     return canUnitBudget
   })
-}
-
-const FLOW_NODE_POST_KEYS: { re: RegExp; keys: string[] }[] = [
-  { re: /联系人/, keys: ['contact'] },
-  { re: /项目负责人/, keys: ['leader'] },
-  { re: /承担部门|承办部门/, keys: ['deptHead'] },
-  { re: /二级总师/, keys: ['chief2'] },
-  { re: /一级总师/, keys: ['chief1'] },
-  { re: /总部.*财务/, keys: ['hqFinance'] },
-  { re: /财务/, keys: ['unitFinanceDirector', 'unitFinanceSupervisor'] },
-  { re: /总部|科研项目处/, keys: ['hqDirector', 'hqSupervisor'] },
-  { re: /科技部门/, keys: ['unitTechDirector', 'unitTechSupervisor'] },
-  { re: /分管/, keys: ['unitTechDirector'] },
-]
-
-function canAuditDeclaration(row: any, user: ReturnType<typeof useUserStore>) {
-  if (user.identityCode === 'admin') return true
-  const node = String(row?.flowNode || '')
-  const hit = FLOW_NODE_POST_KEYS.find((item) => item.re.test(node))
-  const labels = hit?.keys
-    .map((key) => row?.posts?.[key])
-    .filter((label): label is string => !!label) || []
-  if (labels.length) {
-    return canActOnHandlers(
-      labels.map((label) => ({ label })),
-      { employeeNo: user.employeeNo, realName: user.realName, identityCode: user.identityCode },
-    )
-  }
-  return canAuditByIdentity(row?.flowNode, user.identityCode)
 }
 
 export const usePendingStore = defineStore('pending', {
@@ -189,7 +159,7 @@ export const usePendingStore = defineStore('pending', {
       try {
         const user = useUserStore()
         const [res, maintenanceRes, filingRes, milestoneRes] = await Promise.allSettled([
-          declarationApi.page({ page: 1, size: 200 }),
+          declarationApi.pending(),
           projectApi.pendingMaintenance(),
           declarationApi.page({ page: 1, size: 200, status: 'APPROVED' }),
           milestoneApi.board({ year: new Date().getFullYear() }),
@@ -198,12 +168,7 @@ export const usePendingStore = defineStore('pending', {
         const maintenanceData = maintenanceRes.status === 'fulfilled' ? maintenanceRes.value.data : undefined
         const filingData = filingRes.status === 'fulfilled' ? filingRes.value.data : undefined
         const milestoneData = milestoneRes.status === 'fulfilled' ? milestoneRes.value.data : undefined
-        const rows = (declarationData as any)?.records || []
-        const declarationReviews = rows.filter(
-          (row: any) =>
-            ['SUBMITTED', 'APPROVING'].includes(row.status) &&
-            canAuditDeclaration(row, user),
-        )
+        const declarationReviews = Array.isArray(declarationData) ? declarationData : []
         const maintenanceReviews = ((maintenanceData as any[]) || [])
         const milestoneReviews = (((milestoneData as any)?.todos || []) as any[]).filter(
           (row: any) => row?.taskType === 'COMPILE_AUDIT' || row?.taskType === 'CLOSE_AUDIT',
@@ -214,7 +179,13 @@ export const usePendingStore = defineStore('pending', {
         this.declarationReviewCount = declarationReviews.length
         this.maintenanceReviewCount = maintenanceReviews.length
         this.milestoneReviewCount = milestoneReviews.length
-        const fundReviews = await loadFundReviewRows(user)
+        let fundReviews: FundReviewRow[] = []
+        try {
+          fundReviews = await loadFundReviewRows(user)
+        } catch {
+          // 经费接口异常不能影响申报、维护和里程碑待办。
+          fundReviews = []
+        }
         this.fundReviews = fundReviews
         this.fundReviewCount = fundReviews.length
         this.filingPendingCount = Number((filingData as any)?.total || 0)
@@ -232,4 +203,3 @@ export const usePendingStore = defineStore('pending', {
     },
   },
 })
-

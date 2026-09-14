@@ -1,0 +1,481 @@
+{
+  "channels": {
+    "MJKY": "common-v1",
+    "04ZXJX": "common-v1",
+    "ZDYFJH": "common-v1",
+    "XX25": "xx25-v1",
+    "ZRJJ": "common-v1",
+    "FGGGXJC": "common-v1",
+    "SHJBGS": "common-v1",
+    "SHKJCX": "common-v1",
+    "YYGD": "common-v1",
+    "ZDZX": "common-v1",
+    "XJQX": "common-v1",
+    "KJZ": "week-v1",
+    "DFJYJY": "institute-v1",
+    "CLM": "alliance-v1",
+    "BOKH": "boeing-v1"
+  },
+  "names": {
+    "XX25专项": "xx25-v1",
+    "科技周": "week-v1",
+    "大飞机研究院": "institute-v1",
+    "大飞机先进材料创新联盟": "alliance-v1",
+    "“中国商飞-波音”可持续航空技术研究中心项目": "boeing-v1"
+  },
+  "templates": {
+    "common-v1": [
+      "contact",
+      "owner",
+      "dept",
+      "chief2",
+      "finance",
+      "tech",
+      "unitLeader",
+      "chief1",
+      "hq"
+    ],
+    "xx25-v1": [
+      "contact",
+      "owner",
+      "dept",
+      "chief2",
+      "tech",
+      "unitLeader",
+      "chief1",
+      "hq"
+    ],
+    "week-v1": [
+      "ownerFill",
+      "chief3",
+      "professional2",
+      "unitTech",
+      "tech",
+      "scienceLeader",
+      "development",
+      "chief1Audit",
+      "hqManagement",
+      "publishDemand",
+      "strategy",
+      "publishList"
+    ],
+    "institute-v1": [
+      "collect",
+      "academicGuide",
+      "publishGuide",
+      "proposal",
+      "academicProposal",
+      "prepareList",
+      "council"
+    ],
+    "alliance-v1": [
+      "allianceFill",
+      "allianceCommittee",
+      "allianceCouncil",
+      "companyReport"
+    ],
+    "boeing-v1": [
+      "ownerFill",
+      "beijingStaff",
+      "beijingHead",
+      "beijingLeader",
+      "hqStaff"
+    ],
+    "report-v1": [
+      "contact",
+      "reportUnit",
+      "archive"
+    ],
+    "legacy-v0": [
+      "contact",
+      "owner",
+      "dept",
+      "chief2",
+      "legacyFinance",
+      "legacyTech",
+      "legacyLeader",
+      "chief1",
+      "legacyHq"
+    ],
+    "legacy-report-v0": [
+      "contact",
+      "owner",
+      "archive"
+    ]
+  },
+  "nodes": [
+    {
+      "code": "contact",
+      "title": "项目联系人",
+      "roleKeys": [
+        "contact"
+      ],
+      "kind": "fill",
+      "evidence": false
+    },
+    {
+      "code": "owner",
+      "title": "项目负责人",
+      "roleKeys": [
+        "leader"
+      ],
+      "kind": "audit",
+      "evidence": false
+    },
+    {
+      "code": "ownerFill",
+      "title": "项目负责人",
+      "roleKeys": [
+        "leader"
+      ],
+      "kind": "fill",
+      "evidence": false
+    },
+    {
+      "code": "dept",
+      "title": "项目承担部门负责人",
+      "roleKeys": [
+        "deptHead"
+      ],
+      "kind": "audit",
+      "evidence": false
+    },
+    {
+      "code": "chief2",
+      "title": "二级总师",
+      "roleKeys": [
+        "chief2"
+      ],
+      "kind": "audit",
+      "evidence": false
+    },
+    {
+      "code": "finance",
+      "title": "单位财务部门负责人",
+      "roleKeys": [
+        "unitFinanceDirector"
+      ],
+      "kind": "audit",
+      "evidence": false
+    },
+    {
+      "code": "tech",
+      "title": "单位科技部门负责人",
+      "roleKeys": [
+        "unitTechDirector"
+      ],
+      "kind": "audit",
+      "evidence": false
+    },
+    {
+      "code": "unitLeader",
+      "title": "单位分管领导",
+      "roleKeys": [
+        "unitTechDirector",
+        "unitTechSupervisor"
+      ],
+      "kind": "audit",
+      "evidence": false
+    },
+    {
+      "code": "chief1",
+      "title": "一级总师",
+      "roleKeys": [
+        "chief1"
+      ],
+      "kind": "audit",
+      "evidence": false
+    },
+    {
+      "code": "hq",
+      "title": "总部科技部科研项目处",
+      "roleKeys": [
+        "hqDirector"
+      ],
+      "kind": "audit",
+      "evidence": false
+    },
+    {
+      "code": "chief3",
+      "title": "三级专业总师",
+      "roleKeys": [
+        "chief2"
+      ],
+      "kind": "audit",
+      "evidence": false
+    },
+    {
+      "code": "professional2",
+      "title": "二级专业总师",
+      "roleKeys": [
+        "chief2"
+      ],
+      "kind": "audit",
+      "evidence": false
+    },
+    {
+      "code": "unitTech",
+      "title": "单位科技部",
+      "roleKeys": [
+        "unitTechSupervisor"
+      ],
+      "kind": "audit",
+      "evidence": false
+    },
+    {
+      "code": "scienceLeader",
+      "title": "单位分管科技领导",
+      "roleKeys": [
+        "unitTechDirector",
+        "unitTechSupervisor"
+      ],
+      "kind": "audit",
+      "evidence": false
+    },
+    {
+      "code": "development",
+      "title": "总部科技部科技发展处",
+      "roleKeys": [
+        "hqDirector"
+      ],
+      "kind": "audit",
+      "evidence": false
+    },
+    {
+      "code": "chief1Audit",
+      "title": "一级总师审核",
+      "roleKeys": [
+        "chief1"
+      ],
+      "kind": "audit",
+      "evidence": false
+    },
+    {
+      "code": "hqManagement",
+      "title": "总部科技管理部",
+      "roleKeys": [
+        "hqDirector"
+      ],
+      "kind": "audit",
+      "evidence": false
+    },
+    {
+      "code": "publishDemand",
+      "title": "需求发布",
+      "roleKeys": [
+        "hqDirector"
+      ],
+      "kind": "handle",
+      "evidence": true
+    },
+    {
+      "code": "strategy",
+      "title": "技术发展战略委员会审查",
+      "roleKeys": [
+        "hqDirector"
+      ],
+      "kind": "audit",
+      "evidence": true
+    },
+    {
+      "code": "publishList",
+      "title": "发布拟立项项目清单",
+      "roleKeys": [
+        "hqDirector"
+      ],
+      "kind": "handle",
+      "evidence": true
+    },
+    {
+      "code": "collect",
+      "title": "建设单位征集指南",
+      "roleKeys": [
+        "contact"
+      ],
+      "kind": "fill",
+      "evidence": false
+    },
+    {
+      "code": "academicGuide",
+      "title": "各研究院学术委员会评审（指南）",
+      "roleKeys": [
+        "hqDirector"
+      ],
+      "kind": "audit",
+      "evidence": true
+    },
+    {
+      "code": "publishGuide",
+      "title": "各研究院向本高校指南发布",
+      "roleKeys": [
+        "hqDirector"
+      ],
+      "kind": "handle",
+      "evidence": true
+    },
+    {
+      "code": "proposal",
+      "title": "各研究院组织形成项目建议书",
+      "roleKeys": [
+        "leader"
+      ],
+      "kind": "handle",
+      "evidence": true
+    },
+    {
+      "code": "academicProposal",
+      "title": "各研究院学术委员会评审（建议书）",
+      "roleKeys": [
+        "hqDirector"
+      ],
+      "kind": "audit",
+      "evidence": true
+    },
+    {
+      "code": "prepareList",
+      "title": "形成拟立项清单",
+      "roleKeys": [
+        "hqDirector"
+      ],
+      "kind": "handle",
+      "evidence": true
+    },
+    {
+      "code": "council",
+      "title": "理事会审议",
+      "roleKeys": [
+        "hqDirector"
+      ],
+      "kind": "audit",
+      "evidence": true
+    },
+    {
+      "code": "allianceFill",
+      "title": "联盟成员单位提交申请书",
+      "roleKeys": [
+        "contact"
+      ],
+      "kind": "fill",
+      "evidence": false
+    },
+    {
+      "code": "allianceCommittee",
+      "title": "联盟专委会审查意见/纪要",
+      "roleKeys": [
+        "hqDirector"
+      ],
+      "kind": "audit",
+      "evidence": true
+    },
+    {
+      "code": "allianceCouncil",
+      "title": "联盟理事会审查意见/纪要",
+      "roleKeys": [
+        "hqDirector"
+      ],
+      "kind": "audit",
+      "evidence": true
+    },
+    {
+      "code": "companyReport",
+      "title": "公司科技部报批",
+      "roleKeys": [
+        "hqDirector"
+      ],
+      "kind": "handle",
+      "evidence": true
+    },
+    {
+      "code": "beijingStaff",
+      "title": "北研中心科技部主管",
+      "roleKeys": [
+        "hqSupervisor"
+      ],
+      "kind": "audit",
+      "evidence": false
+    },
+    {
+      "code": "beijingHead",
+      "title": "北研中心科技部部长",
+      "roleKeys": [
+        "hqDirector"
+      ],
+      "kind": "audit",
+      "evidence": false
+    },
+    {
+      "code": "beijingLeader",
+      "title": "北研中心分管领导",
+      "roleKeys": [
+        "unitTechDirector"
+      ],
+      "kind": "audit",
+      "evidence": false
+    },
+    {
+      "code": "hqStaff",
+      "title": "总部科技部主管",
+      "roleKeys": [
+        "hqSupervisor"
+      ],
+      "kind": "audit",
+      "evidence": false
+    },
+    {
+      "code": "reportUnit",
+      "title": "本单位科技部审批",
+      "roleKeys": [
+        "unitTechDirector"
+      ],
+      "kind": "audit",
+      "evidence": false
+    },
+    {
+      "code": "archive",
+      "title": "线上报备归档",
+      "roleKeys": [],
+      "kind": "end",
+      "evidence": false
+    },
+    {
+      "code": "legacyTech",
+      "title": "单位科技部门负责人",
+      "roleKeys": [
+        "unitTechDirector",
+        "unitTechSupervisor"
+      ],
+      "kind": "audit",
+      "evidence": false
+    },
+    {
+      "code": "legacyLeader",
+      "title": "单位分管领导",
+      "roleKeys": [
+        "unitTechDirector",
+        "unitTechSupervisor"
+      ],
+      "kind": "audit",
+      "evidence": false
+    },
+    {
+      "code": "legacyFinance",
+      "title": "单位财务部门负责人",
+      "roleKeys": [
+        "unitFinanceDirector",
+        "unitFinanceSupervisor"
+      ],
+      "kind": "audit",
+      "evidence": false
+    },
+    {
+      "code": "legacyHq",
+      "title": "总部科研项目处",
+      "roleKeys": [
+        "hqDirector",
+        "hqSupervisor"
+      ],
+      "kind": "audit",
+      "evidence": false
+    }
+  ]
+}

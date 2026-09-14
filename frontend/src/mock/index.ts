@@ -3,6 +3,8 @@ import type { RequestOptions } from '@/api/request'
 import { calcColor, mergeColor } from '@/utils/color'
 import { buildLifecycle, channelPathLabel } from '@/utils/lifecycle'
 import { identityByLabel } from '@/constants/permission'
+import { canActOnHandlers, identitiesForFlowNode } from '@/utils/flowActor'
+import { declarationAuditNodes, declarationNodes, declarationWorkflowId } from '@/utils/declarationWorkflow'
 import * as DB from './data'
 import { buildDashboard, canAccessPreResearch, currentMockUser } from './dashboard'
 
@@ -78,6 +80,52 @@ function paginate(list: any[], query: any) {
   const page = Number(query.page || 1)
   const size = Number(query.size || 10)
   return { records: list.slice((page - 1) * size, page * size), total: list.length, page, size }
+}
+
+const DECLARATION_NODE_POST_KEYS: Record<string, string[]> = {
+  联系人: ['contact'],
+  项目负责人: ['leader'],
+  承担部门: ['deptHead'],
+  承办部门: ['deptHead'],
+  二级总师: ['chief2'],
+  一级总师: ['chief1'],
+  财务: ['unitFinanceDirector', 'unitFinanceSupervisor'],
+  科技部门: ['unitTechDirector', 'unitTechSupervisor'],
+  分管: ['unitTechDirector', 'unitTechSupervisor'],
+  总部: ['hqDirector', 'hqSupervisor'],
+}
+
+function declarationPosts(row: any) {
+  if (row?.posts && typeof row.posts === 'object') return row.posts
+  const remark = String(row?.remark || '')
+  const prefix = '__DECLARATION_POSTS__:'
+  if (!remark.startsWith(prefix)) return {}
+  try {
+    return JSON.parse(remark.slice(prefix.length)) || {}
+  } catch {
+    return {}
+  }
+}
+
+function isMockDeclarationApprover(row: any, user: any) {
+  if (!user || user.identityCode === 'admin') return true
+  const node = String(row?.flowNode || '')
+  const workflowNode = declarationAuditNodes({ ...row, posts: declarationPosts(row) }).find((n) => n.title === node || n.title.includes(node))
+  const keys = workflowNode?.roleKeys || Object.entries(DECLARATION_NODE_POST_KEYS).find(([label]) => node.includes(label))?.[1] || []
+  const posts = declarationPosts(row)
+  const labels = keys.map((key) => posts[key]).filter(Boolean)
+  if (labels.length) {
+    return canActOnHandlers(labels.map((label) => ({ label: String(label) })), {
+      employeeNo: user.employeeNo,
+      realName: user.realName,
+      username: user.username,
+      identityCode: user.identityCode,
+    })
+  }
+  if (!identitiesForFlowNode(node).includes(user.identityCode)) return false
+  if (user.dataScope === 'COMPANY') return true
+  if (row.orgId && user.orgId && Number(row.orgId) === Number(user.orgId)) return true
+  return row.applicant && (String(row.applicant).startsWith(String(user.realName || '')) || String(row.applicant).startsWith(String(user.username || '')))
 }
 
 /** 构建 accept 分级材料栏：国家级 → 单位/公司/国家；地方级 → 单位/属地；公司级 → 单位/公司 */
@@ -715,6 +763,10 @@ export async function mockRequest<T = any>(opts: RequestOptions): Promise<Res<T>
       if (query.keyword) list = list.filter((x) => (x.name || '').includes(query.keyword))
       return ok(paginate(list, query))
     }),
+    m('GET', '/declarations/pending', () => {
+      const user = currentMockUser()
+      return ok(DB.declarations.filter((x) => ['SUBMITTED', 'APPROVING'].includes(String(x.status)) && isMockDeclarationApprover(x, user)))
+    }),
     m('GET', '/declarations/:id', (p) => {
       const d = DB.declarations.find((x) => x.id === Number(p.id))
       return ok({ ...d, materials: DB.materials.filter((x) => x.bizType === 'DECLARATION' && x.bizId === Number(p.id)) })
@@ -730,6 +782,8 @@ export async function mockRequest<T = any>(opts: RequestOptions): Promise<Res<T>
     m('POST', '/declarations', () => {
       const id = (DB.declarations.reduce((m, x) => Math.max(m, x.id), 0) || 0) + 1
       const ch = DB.channels.find((c) => c.id === Number(body.channelId))
+      const workflowVersion = declarationWorkflowId({ ...body, channelCode: ch?.channelCode, channelName: ch?.channelName, flowNodes: ch?.flowNodes, posts: body.posts || {} })
+      const snapshotPosts = { ...(body.posts || {}), __workflow: workflowVersion }
       const applicant =
         body.applicant ||
         (body.posts?.contact ? String(body.posts.contact).replace(/（.*?）/, '').trim() : '') ||
@@ -741,8 +795,10 @@ export async function mockRequest<T = any>(opts: RequestOptions): Promise<Res<T>
         channelName: ch?.channelName,
         levelCode: ch?.levelCode,
         applyAt: new Date().toISOString().slice(0, 10),
-        needApproval: 1,
         ...body,
+        needApproval: workflowVersion === 'report-v1' ? 0 : 1,
+        posts: snapshotPosts,
+        remark: `__DECLARATION_POSTS__:${JSON.stringify(snapshotPosts)}`,
         applicant,
         orgName: body.leadOrgName || body.orgName,
       })
@@ -765,37 +821,70 @@ export async function mockRequest<T = any>(opts: RequestOptions): Promise<Res<T>
     }),
     m('PUT', '/declarations/:id', (p) => {
       const x = DB.declarations.find((y) => y.id === Number(p.id))
-      if (x) Object.assign(x, body)
+      if (x) {
+        const ch = DB.channels.find((c) => c.id === Number(body.channelId ?? x.channelId))
+        const version = declarationWorkflowId({
+          ...x,
+          ...body,
+          status: 'DRAFT',
+          channelCode: ch?.channelCode,
+          channelName: ch?.channelName,
+          flowNodes: ch?.flowNodes,
+          posts: {},
+        })
+        const posts = { ...declarationPosts(x), ...(body.posts || {}), __workflow: version }
+        Object.assign(x, body, {
+          channelName: ch?.channelName,
+          levelCode: ch?.levelCode,
+          needApproval: version === 'report-v1' ? 0 : 1,
+          posts,
+          remark: `__DECLARATION_POSTS__:${JSON.stringify(posts)}`,
+        })
+      }
       return ok(true)
     }),
     m('POST', '/declarations/:id/submit', (p) => {
       const x = DB.declarations.find((y) => y.id === Number(p.id))
       if (!x) return fail('申报记录不存在，请先暂存')
+      if (!['DRAFT', 'REJECTED'].includes(String(x.status))) return fail('仅草稿或退回的申报可以提交审核')
+      const submitUser = currentMockUser()
+      const submitLabels = ['contact', 'leader', 'techLeader', 'supervisor']
+        .map((key) => declarationPosts(x)[key]).filter(Boolean).map((label) => ({ label: String(label) }))
+      if (submitUser?.identityCode !== 'admin' && submitLabels.length && !canActOnHandlers(submitLabels, submitUser)) {
+        return fail('仅本项目指定填报人或项目团队成员可以提交')
+      }
       const missing = DB.materials
         .filter((y) => y.bizType === 'DECLARATION' && y.bizId === Number(p.id) && y.required === 1 && !y.locked && !y.fileName)
         .map((y) => y.fieldName)
       if (missing.length) return fail(`渠道材料未齐，请上传：${missing.join('、')}`)
-      Object.assign(x, { status: 'APPROVING', flowNode: '项目负责人' })
+      const posts = declarationPosts(x)
+      const version = declarationWorkflowId({ ...x, posts })
+      const first = declarationAuditNodes({ ...x, posts }).at(0)
+      if (first) Object.assign(x, { status: 'APPROVING', flowNode: first.title, needApproval: version === 'report-v1' ? 0 : 1 })
       return ok(true)
     }),
     m('POST', '/declarations/:id/audit', (p) => {
       const x = DB.declarations.find((y) => y.id === Number(p.id))
       if (!x) return fail('申报记录不存在')
-      const chain = ['项目负责人', '项目承担部门负责人', '二级总师', '单位财务部门负责人', '单位科技部门负责人', '单位分管领导', '一级总师', '总部科研项目处']
+      const posts = declarationPosts(x)
+      const chain = declarationAuditNodes({ ...x, posts })
+      const current = chain.find((node) => node.title === x.flowNode)
+      if (x.status !== 'APPROVING' || !current) return fail('申报当前不在有效审核节点')
+      if (!isMockDeclarationApprover(x, currentMockUser())) return fail('仅本节点指定办理人可以办理')
+      if (typeof body.pass !== 'boolean') return fail('请选择通过或退回')
+      if (body.pass && current.evidence && (!String(body.opinion || '').trim() || !String(body.evidence || '').trim())) {
+        return fail('请填写办理结论及评审纪要/发布文件等佐证引用')
+      }
       if (!body.pass) {
-        Object.assign(x, { status: 'REJECTED', opinion: body.opinion, flowNode: '项目联系人' })
+        Object.assign(x, { status: 'REJECTED', opinion: body.opinion, flowNode: declarationNodes({ ...x, posts })[0]?.title })
       } else {
-        if (x.needApproval === 0 && x.flowNode === '项目负责人') {
-          Object.assign(x, { status: 'REPORTED', opinion: body.opinion, flowNode: '线上报备归档' })
-          return ok(true)
-        }
-        let cur = x.flowNode === '承办部门负责人' ? '项目承担部门负责人' : String(x.flowNode || '')
-        let i = chain.indexOf(cur)
-        if (i < 0) i = chain.findIndex((t) => cur.includes(t) || t.includes(cur))
+        let i = chain.findIndex((t) => t.title === x.flowNode || t.title.includes(String(x.flowNode || '')))
         const next = i < 0 ? chain[0] : i >= chain.length - 1 ? null : chain[i + 1]
         Object.assign(x, next
-          ? { status: 'APPROVING', opinion: body.opinion, flowNode: next }
-          : { status: 'APPROVED', opinion: body.opinion, flowNode: '归档' })
+          ? { status: 'APPROVING', opinion: body.opinion, flowNode: next.title }
+          : x.needApproval === 0
+            ? { status: 'REPORTED', opinion: body.opinion, flowNode: '线上报备归档' }
+            : { status: 'APPROVED', opinion: body.opinion, flowNode: '归档' })
       }
       return ok(true)
     }),

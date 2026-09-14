@@ -106,6 +106,7 @@ export const changeApi = {
 
 export const declarationApi = {
   page: (params: any) => http.get('/api/declarations', params),
+  pending: () => http.get('/api/declarations/pending'),
   detail: (id: number) => http.get(`/api/declarations/${id}`),
   create: (data: any) => http.post('/api/declarations', data),
   update: (id: number, data: any) => http.put(`/api/declarations/${id}`, data),

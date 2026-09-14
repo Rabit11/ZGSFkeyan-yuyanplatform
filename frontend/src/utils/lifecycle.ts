@@ -1,4 +1,4 @@
-/** 项目台账 · 平台级生命周期（固定 5 节点，页面按 4 个周期展示） */
+/** 项目台账 · 平台级生命周期（固定 6 节点） */
 
 export type LifecycleStatus = 'DONE' | 'TODO' | 'PENDING'
 
@@ -29,9 +29,10 @@ const NODE_DEFS = [
   { seq: 3, nodeCode: 'IMPLEMENT', nodeName: '实施阶段', ownerRole: '项目负责人' },
   { seq: 4, nodeCode: 'ACCEPT', nodeName: '项目验收', ownerRole: '项目负责人' },
   { seq: 5, nodeCode: 'TRANSFORM', nodeName: '成果转化', ownerRole: '项目负责人' },
+  { seq: 6, nodeCode: 'ARCHIVE', nodeName: '项目完成归档', ownerRole: '单位科技部长' },
 ] as const
 
-/** 当前待办节点下标：0~4；全部完成返回 5 */
+/** 当前待办节点下标：0~5；全部完成返回 6 */
 export function currentLifecycleIndex(projectStatus?: string): number {
   switch (projectStatus) {
     case 'DRAFT':
@@ -46,7 +47,7 @@ export function currentLifecycleIndex(projectStatus?: string): number {
     case 'GOV_ACCEPTED':
       return 4
     case 'FINISHED':
-      return 5
+      return 6
     default:
       return 2
   }
@@ -88,17 +89,20 @@ export function buildLifecycle(opts: {
   const todoIdx = currentLifecycleIndex(opts.status)
   const contact = pickName(opts.teamMembers, ['项目联系人', '项目主管'], opts.createByName)
   const leader = pickName(opts.teamMembers, ['项目负责人'], opts.createByName)
+  const minister = pickName(opts.teamMembers, ['单位科技部长'], '待指定')
   const unitHandler = pickName(opts.teamMembers, ['单位科技主管', '二级总师'], '待指定')
 
   return NODE_DEFS.map((def, i) => {
     let status: LifecycleStatus = 'PENDING'
-    if (todoIdx >= NODE_DEFS.length || i < todoIdx) status = 'DONE'
+    if (todoIdx >= 6 || i < todoIdx) status = 'DONE'
     else if (i === todoIdx) status = 'TODO'
 
-    // 成果转化已完成时，生命周期展示到成果转化办结为止
+    // 成果转化已完成时，归档为待办
     if (opts.transformDone && todoIdx === 4 && i === 4) status = 'DONE'
+    if (opts.transformDone && todoIdx === 4 && i === 5) status = 'TODO'
 
-    const ownerName = def.nodeCode === 'DECLARE' ? contact : leader
+    const ownerName =
+      def.nodeCode === 'DECLARE' ? contact : def.nodeCode === 'ARCHIVE' ? minister : leader
 
     const node: LifecycleNode = {
       seq: def.seq,
@@ -116,7 +120,8 @@ export function buildLifecycle(opts: {
         { time: '2026-01-12 16:40', action: '审核通过并办结', actor: unitHandler, opinion: '同意' },
       ]
     } else {
-      node.nextFlowName = '二级单位管理团队办理'
+      node.nextFlowName =
+        def.nodeCode === 'ARCHIVE' ? '二级单位管理团队办结归档' : '二级单位管理团队办理'
       node.nextHandlerRole = '二级单位管理团队办理人'
       node.nextHandlerName = unitHandler
       // 待办 / 未办理均可点击只读查看详情与流转图

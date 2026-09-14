@@ -269,7 +269,7 @@ public class FlowAuditGuard {
         }
         if (t.contains("二级单位") || t.contains("内审") || t.contains("科技部门")
                 || t.contains("分管") || t.contains("主管部门")) {
-            return new String[]{"unitHead"};
+            return new String[]{"unitHead", "unitStaff"};
         }
         return new String[]{"unitHead", "hqHead", "hqStaff"};
     }

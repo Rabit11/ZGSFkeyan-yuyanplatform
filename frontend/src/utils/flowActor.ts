@@ -50,7 +50,7 @@ export function identitiesForFlowNode(node?: string): IdentityCode[] {
   if (/财务/.test(t)) return ['finHead', 'finStaff']
   if (/法务/.test(t)) return ['hqHead', 'hqStaff']
   if (/总部/.test(t) || /科研项目处|科技主管/.test(t)) return ['hqHead', 'hqStaff']
-  if (/二级单位|内审|科技部门|分管|主管部门/.test(t)) return ['unitHead']
+  if (/二级单位|内审|科技部门|分管|主管部门/.test(t)) return ['unitHead', 'unitStaff']
   return ['unitHead', 'hqHead', 'hqStaff']
 }
 

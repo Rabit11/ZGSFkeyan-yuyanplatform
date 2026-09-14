@@ -10,7 +10,8 @@ import { fmtDate } from '@/utils/format'
 import majorDict from '@/config/major1-major2.json'
 import DeclareFlowDialog from '@/components/declare/DeclareFlowDialog.vue'
 import { encodeDeclarationPostsRemark, unwrapDeclarationDetail } from '@/utils/flowLive'
-import { firstDeclareAuditNode, nextDeclareAuditNode } from '@/utils/declareFlow'
+import { firstDeclarationAuditNode, nextDeclarationAuditNode } from '@/utils/declareFlow'
+import { currentDeclarationNode, declarationActorLabels, declarationRequiredPosts } from '@/utils/declarationWorkflow'
 import { useUserStore } from '@/stores/user'
 import { usePendingStore } from '@/stores/pending'
 import { canActOnHandlers, canAuditByIdentity } from '@/utils/flowActor'
@@ -30,6 +31,10 @@ const pendingReviews = ref<any[]>([])
 const pendingMaintenanceReviews = ref<any[]>([])
 const reviewOnly = ref(false)
 const reviewing = ref<any>(null)
+const auditOpen = ref(false)
+const auditTarget = ref<any>(null)
+const auditForm = reactive({ pass: true, opinion: '', evidence: '' })
+const auditCurrentNode = computed(() => currentDeclarationNode(auditTarget.value || {}))
 const tableRows = computed(() =>
   reviewOnly.value
     ? [
@@ -71,6 +76,7 @@ async function openFlow(record: any) {
       materials: (materials.length ? materials : matRes.data) || [],
       declareMaterial: ch?.declareMaterial || (detailRes.data as any)?.declareMaterial,
       channelDeclareMaterial: ch?.declareMaterial || (detailRes.data as any)?.declareMaterial,
+      channelCode: ch?.channelCode || (detailRes.data as any)?.channel?.channelCode,
     }
   } catch {
     flowDecl.value = record
@@ -164,14 +170,8 @@ const form = reactive(emptyForm())
 const { can, guard } = useWorkDuty('declare', form)
 const formMode = ref<'create' | 'edit' | 'view'>('create')
 const formReadonly = computed(() => formMode.value === 'view')
-const isCurrentProjectLeader = computed(() =>
-  canActOnHandlers(
-    form.posts.leader ? [{ label: form.posts.leader }] : [],
-    { employeeNo: user.employeeNo, realName: user.realName, identityCode: user.identityCode },
-  ),
-)
 const submitButtonText = computed(() =>
-  isCurrentProjectLeader.value ? '提交申报并进入本人审核' : '校验并提交负责人审核',
+  '校验并提交渠道审签',
 )
 
 const major1Options = majorDict.major1 as string[]
@@ -199,7 +199,7 @@ function personSearchText(u: SysUser) {
 }
 
 const coveredPostCount = computed(
-  () => ALL_POST_KEYS.filter((k) => !!(form.posts as any)?.[k]).length,
+  () => requiredPostKeyList().filter((k) => !!(form.posts as any)?.[k]).length,
 )
 
 const STATUS_TEXT: Record<string, string> = {
@@ -254,7 +254,7 @@ const FLOW_NODE_POST_KEYS: { re: RegExp; keys: PostKey[] }[] = [
   { re: /财务/, keys: ['unitFinanceDirector', 'unitFinanceSupervisor'] },
   { re: /总部|科研项目处/, keys: ['hqDirector', 'hqSupervisor'] },
   { re: /科技部门/, keys: ['unitTechDirector', 'unitTechSupervisor'] },
-  { re: /分管/, keys: ['unitTechDirector'] },
+  { re: /分管/, keys: ['unitTechDirector', 'unitTechSupervisor'] },
 ]
 
 async function loadMembers() {
@@ -265,19 +265,15 @@ async function loadMembers() {
 async function load() {
   loading.value = true
   try {
-    const [res, pendingRes, maintenanceRes, filingRes] = await Promise.all([
-      declarationApi.page(query),
-      declarationApi.page({ page: 1, size: 200 }),
+      const [res, pendingRes, maintenanceRes, filingRes] = await Promise.all([
+        declarationApi.page(query),
+        declarationApi.pending(),
       projectApi.pendingMaintenance(),
       declarationApi.page({ page: 1, size: 200, status: 'APPROVED' }),
     ])
     rows.value = (res.data as any)?.records || []
     total.value = (res.data as any)?.total || 0
-    pendingReviews.value = ((pendingRes.data as any)?.records || []).filter(
-      (row: any) =>
-        ['SUBMITTED', 'APPROVING'].includes(row.status) &&
-        canAuditDeclaration(row),
-    )
+    pendingReviews.value = Array.isArray(pendingRes.data) ? pendingRes.data : []
     pendingMaintenanceReviews.value = ((maintenanceRes.data as any[]) || []).map((row: any) => ({
       ...row,
       applyNo: row.projectNo,
@@ -295,6 +291,12 @@ async function load() {
 
 function canAuditDeclaration(row: any) {
   if (user.identityCode === 'admin') return true
+  const workflowLabels = declarationActorLabels({ ...row, posts: row?.posts || {} } as any)
+  if (workflowLabels.length) {
+    return canActOnHandlers(workflowLabels.map((label) => ({ label })), {
+      employeeNo: user.employeeNo, realName: user.realName, identityCode: user.identityCode,
+    })
+  }
   const node = String(row?.flowNode || '')
   const hit = FLOW_NODE_POST_KEYS.find((item) => item.re.test(node))
   const labels = hit?.keys
@@ -374,6 +376,23 @@ function onMajor1Change() {
 }
 
 const selectedChannel = computed(() => dictStore.channels.find((c) => c.id === form.channelId))
+function requiredPostKeyList(): PostKey[] {
+  if (!selectedChannel.value) return ALL_POST_KEYS
+  return declarationRequiredPosts({
+    channelCode: selectedChannel.value.channelCode,
+    channelName: selectedChannel.value.channelName,
+    flowNodes: selectedChannel.value.flowNodes,
+    needApproval: form.needApproval,
+    status: 'DRAFT',
+    posts: {},
+  }).map((item) => item.key as PostKey)
+}
+const visiblePostGroups = computed(() => {
+  const required = new Set(requiredPostKeyList())
+  return POST_GROUPS.map((group) => ({ ...group, posts: group.posts.filter((post) => required.has(post.key)) }))
+    .filter((group) => group.posts.length)
+})
+const requiredPostCount = computed(() => requiredPostKeyList().length)
 const channelGroups = computed(() =>
   (['NATIONAL', 'LOCAL', 'COMPANY'] as const)
     .map((levelCode) => ({
@@ -625,7 +644,7 @@ function validateForm() {
   if (!form.major2) return '请选择二级专业'
   if (!form.leadOrgName) return '请选择责任单位/牵头单位'
   if (!form.leadWorkContent?.trim()) return '请填写牵头单位主要工作内容'
-  for (const g of POST_GROUPS) {
+  for (const g of visiblePostGroups.value) {
     for (const p of g.posts) {
       if (!(form.posts as any)[p.key]) return `请选择${p.label}`
     }
@@ -718,11 +737,9 @@ async function onConfirmSubmit() {
     return
   }
   Modal.confirm({
-    title: isCurrentProjectLeader.value ? '确认提交申报并进入本人审核？' : '确认提交项目负责人审核？',
-    content: isCurrentProjectLeader.value
-      ? `您是本项目负责人。提交后不会跳过负责人节点，本申报将进入您的「待我审核」，需由您再审核一次。`
-      : `将按渠道「${selectedChannel.value?.channelName || ''}」提交给本项目负责人审核。`,
-    okText: isCurrentProjectLeader.value ? '提交并进入本人审核' : '提交负责人审核',
+    title: '确认提交渠道审签？',
+    content: `将按渠道「${selectedChannel.value?.channelName || ''}」的专用流程，流转至第一个审批或办理节点。`,
+    okText: '确认提交',
     cancelText: '返回修改',
     onOk: async () => {
       if (submitting.value) return Promise.reject(new Error('正在提交，请勿重复操作'))
@@ -730,10 +747,10 @@ async function onConfirmSubmit() {
       message.loading({ content: '正在保存申报信息与岗位人员…', key: 'declaration-submit', duration: 0 })
       try {
         const id = await persistDraft()
-        message.loading({ content: '保存成功，正在发起项目负责人审核…', key: 'declaration-submit', duration: 0 })
+        message.loading({ content: '保存成功，正在发起渠道审签…', key: 'declaration-submit', duration: 0 })
         await declarationApi.submit(id)
         message.success({
-          content: `已提交项目负责人审核，流转至：${firstDeclareAuditNode(form.needApproval !== 0)}`,
+          content: `已提交申报，流转至：${firstDeclarationAuditNode({ ...form, channelCode: selectedChannel.value?.channelCode, channelName: selectedChannel.value?.channelName } as any)}`,
           key: 'declaration-submit',
           duration: 3,
         })
@@ -771,28 +788,54 @@ async function uploadMat(m: any) {
 async function submitFlow(row: any) {
   if (!guard('submit')) return
   await declarationApi.submit(row.id)
-  message.success(`已提交项目负责人审核，流转至：${firstDeclareAuditNode(row.needApproval !== 0)}`)
+  const source = declarationWorkflowSource(row)
+  message.success(`已提交申报，流转至：${firstDeclarationAuditNode(source as any)}`)
   load()
 }
+
+function declarationWorkflowSource(row: any) {
+  const channel = dictStore.channels.find((item) => Number(item.id) === Number(row?.channelId))
+  return {
+    ...row,
+    channelCode: row?.channelCode || channel?.channelCode,
+    channelName: row?.channelName || channel?.channelName,
+    flowNodes: row?.flowNodes || channel?.flowNodes,
+    posts: row?.posts || {},
+  }
+}
+
 function audit(row: any) {
   if (!canAuditDeclaration(row)) {
     message.warning(`仅本项目指定的当前节点办理人可审批（${row.flowNode || '待指定'}）`)
     return
   }
-  Modal.confirm({
-    title: '确认审批通过？',
-    content: `${row.applyNo || ''} · ${row.name || ''}，当前节点：${row.flowNode || '—'}。确认材料齐全并同意流转后再提交。`,
-    okText: '确认通过',
-    cancelText: '返回核对',
-    onOk: async () => {
-      await declarationApi.audit(row.id, { pass: true, opinion: '同意申报，材料齐全' })
-      const next = nextDeclareAuditNode(row.flowNode, row.needApproval !== 0)
-      message.success(next ? `审批通过，流转至：${next}` : '审批通过，申报审签结束')
-      open.value = false
-      reviewing.value = null
-      await load()
-    },
+  auditTarget.value = declarationWorkflowSource(row)
+  Object.assign(auditForm, { pass: true, opinion: '', evidence: '' })
+  auditOpen.value = true
+}
+
+async function confirmDeclarationAudit() {
+  const target = auditTarget.value
+  const node = currentDeclarationNode(target || {})
+  if (!auditForm.opinion.trim()) {
+    message.warning('请填写审批或办理意见')
+    return
+  }
+  if (auditForm.pass && node?.evidence && !auditForm.evidence.trim()) {
+    message.warning('当前节点需要填写评审纪要、发布文件或其他佐证引用')
+    return
+  }
+  await declarationApi.audit(target.id, {
+    pass: auditForm.pass,
+    opinion: auditForm.opinion.trim(),
+    evidence: auditForm.evidence.trim() || undefined,
   })
+  const next = auditForm.pass ? nextDeclarationAuditNode(target.flowNode, target) : null
+  message.success(auditForm.pass ? (next ? `办理完成，流转至：${next}` : '办理完成，申报审签结束') : '已退回申报填报节点')
+  auditOpen.value = false
+  open.value = false
+  reviewing.value = null
+  await load()
 }
 async function revoke(row: any) {
   Modal.confirm({
@@ -846,7 +889,7 @@ async function revoke(row: any) {
           </a-select>
           <a-button type="primary" @click="load"><SearchOutlined />查询</a-button>
         </div>
-        <a-button type="primary" @click="onCreate"><PlusOutlined />新建申报</a-button>
+        <a-button type="primary" :disabled="!can.fill" @click="onCreate"><PlusOutlined />新建申报</a-button>
       </div>
 
       <a-table
@@ -894,7 +937,7 @@ async function revoke(row: any) {
                   <a-menu>
                     <a-menu-item v-if="['DRAFT', 'REJECTED'].includes(record.status)" key="edit" @click="onEdit(record)">编辑</a-menu-item>
                     <a-menu-item key="flow" @click="openFlow(record)">查看审批流转</a-menu-item>
-                    <a-menu-item v-if="['DRAFT', 'REJECTED'].includes(record.status)" key="submit" @click="submitFlow(record)">提交项目负责人审核</a-menu-item>
+                    <a-menu-item v-if="['DRAFT', 'REJECTED'].includes(record.status)" key="submit" @click="submitFlow(record)">提交渠道审签</a-menu-item>
                     <a-menu-item v-if="record.status === 'APPROVING' && record.flowNode === '项目负责人'" key="revoke" @click="revoke(record)">撤销</a-menu-item>
                   </a-menu>
                 </template>
@@ -1132,12 +1175,12 @@ async function revoke(row: any) {
         </a-form-item>
 
         <a-alert
-          :type="coveredPostCount >= ALL_POST_KEYS.length ? 'success' : 'info'"
+          :type="coveredPostCount >= requiredPostCount ? 'success' : 'info'"
           show-icon
           style="margin-bottom: 12px"
-          :message="coveredPostCount >= ALL_POST_KEYS.length
-            ? `候选人员已覆盖全部 ${ALL_POST_KEYS.length} 个申报岗位，可完成项目全流程流转`
-            : `已选择 ${coveredPostCount}/${ALL_POST_KEYS.length} 个申报岗位，成员库已覆盖全部岗位人选`"
+          :message="coveredPostCount >= requiredPostCount
+            ? `候选人员已覆盖本渠道全部 ${requiredPostCount} 个申报岗位，可完成当前审签流程`
+            : `已选择 ${coveredPostCount}/${requiredPostCount} 个本渠道申报岗位`"
         />
 
         <div class="person-recommend-tip">
@@ -1153,7 +1196,7 @@ async function revoke(row: any) {
             <div class="post-col-role">申报须填岗位</div>
             <div class="post-col-person">姓名及工号</div>
           </div>
-          <template v-for="g in POST_GROUPS" :key="g.name">
+          <template v-for="g in visiblePostGroups" :key="g.name">
             <div class="post-group-row">
               <div class="post-group-name">{{ g.name }}</div>
               <div class="post-group-body">
@@ -1219,6 +1262,33 @@ async function revoke(row: any) {
         </div>
       </template>
     </a-drawer>
+
+    <a-modal
+      v-model:open="auditOpen"
+      title="项目申报节点办理"
+      ok-text="确认提交"
+      cancel-text="返回核对"
+      @ok="confirmDeclarationAudit"
+    >
+      <a-descriptions bordered size="small" :column="1" style="margin-bottom: 16px">
+        <a-descriptions-item label="申报项目">{{ auditTarget?.name || '—' }}</a-descriptions-item>
+        <a-descriptions-item label="当前节点">{{ auditCurrentNode?.title || auditTarget?.flowNode || '—' }}</a-descriptions-item>
+      </a-descriptions>
+      <a-form layout="vertical">
+        <a-form-item label="办理结果" required>
+          <a-radio-group v-model:value="auditForm.pass">
+            <a-radio :value="true">通过并流转</a-radio>
+            <a-radio :value="false">退回填报</a-radio>
+          </a-radio-group>
+        </a-form-item>
+        <a-form-item label="审批或办理意见" required>
+          <a-textarea v-model:value="auditForm.opinion" :rows="3" placeholder="填写本节点办理结论" />
+        </a-form-item>
+        <a-form-item v-if="auditForm.pass && auditCurrentNode?.evidence" label="佐证材料引用" required>
+          <a-input v-model:value="auditForm.evidence" placeholder="填写评审纪要、发布文件或材料编号/文件名" />
+        </a-form-item>
+      </a-form>
+    </a-modal>
 
     <a-modal v-model:open="aiOpen" title="任务书识别结果（请核对后回填）" :width="640" ok-text="确认回填" cancel-text="取消" @ok="applyAiPreview">
       <p class="field-hint">来源文件：{{ aiFileName }}</p>
@@ -1586,4 +1656,3 @@ async function revoke(row: any) {
   padding-bottom: 6px;
 }
 </style>
-
