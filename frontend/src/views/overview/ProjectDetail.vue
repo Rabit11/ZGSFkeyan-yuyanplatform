@@ -708,7 +708,7 @@ function nameInitial(name?: string) {
                   <small>{{ cycleDoneCount(cycle.nodes) }}/{{ cycle.nodes.length }}</small>
                 </div>
               </div>
-              <div class="cycle-nodes">
+              <div class="cycle-nodes" :class="{ merged: cycle.nodes.length > 1 }">
                 <template v-for="(node, nodeIdx) in cycle.nodes" :key="node.nodeCode">
                   <div
                     class="life-node"
@@ -737,7 +737,11 @@ function nameInitial(name?: string) {
                       </template>
                     </div>
                   </div>
-                  <div v-if="nodeIdx < cycle.nodes.length - 1" class="node-connector inner" aria-hidden="true">
+                  <div
+                    v-if="nodeIdx < cycle.nodes.length - 1 && cycle.nodes.length === 1"
+                    class="node-connector inner"
+                    aria-hidden="true"
+                  >
                     <RightOutlined />
                   </div>
                 </template>
@@ -1424,6 +1428,14 @@ function nameInitial(name?: string) {
   align-items: stretch;
   gap: 8px;
 }
+.cycle-nodes.merged {
+  gap: 0;
+  min-height: 92px;
+  overflow: hidden;
+  border: 1px solid #d9f7be;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.58);
+}
 .life-node {
   flex: 1;
   min-width: 0;
@@ -1449,6 +1461,28 @@ function nameInitial(name?: string) {
 }
 .life-node.pending {
   background: #ffffff;
+}
+.cycle-nodes.merged .life-node {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+}
+.cycle-nodes.merged .life-node + .life-node {
+  border-left: 1px solid #d9f7be;
+}
+.cycle-nodes.merged .life-node:hover {
+  background: rgba(255, 255, 255, 0.7);
+  border-color: transparent;
+  transform: none;
+}
+.cycle-nodes.merged .life-node.todo {
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: inset 0 0 0 2px rgba(0, 100, 239, 0.75);
+}
+.cycle-nodes.merged .node-head {
+  margin-bottom: 10px;
 }
 .node-head {
   display: flex;
