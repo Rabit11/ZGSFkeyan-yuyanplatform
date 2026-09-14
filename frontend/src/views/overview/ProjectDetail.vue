@@ -370,17 +370,35 @@ const lifecycle = computed<LifecycleNode[]>(() => {
 
 const lifecycleCycles = computed(() => {
   const nodes = lifecycle.value
-  const group = (cycleName: string, codes: string[]) => ({
+  const group = (cycleNo: number, cycleName: string, codes: string[]) => ({
+    cycleNo,
     cycleName,
     nodes: codes.map((code) => nodes.find((node) => node.nodeCode === code)).filter(Boolean) as LifecycleNode[],
   })
   return [
-    group('立项准备', ['DECLARE', 'FILING']),
-    group('实施推进', ['IMPLEMENT']),
-    group('验收闭环', ['ACCEPT']),
-    group('成果转化', ['TRANSFORM']),
+    group(1, '立项准备', ['DECLARE', 'FILING']),
+    group(2, '实施推进', ['IMPLEMENT']),
+    group(3, '验收闭环', ['ACCEPT']),
+    group(4, '成果转化', ['TRANSFORM']),
   ].filter((cycle) => cycle.nodes.length)
 })
+
+function cycleStatus(nodes: LifecycleNode[]) {
+  if (nodes.some((node) => node.status === 'TODO')) return 'todo'
+  if (nodes.every((node) => node.status === 'DONE')) return 'done'
+  return 'pending'
+}
+
+function cycleStatusText(nodes: LifecycleNode[]) {
+  const status = cycleStatus(nodes)
+  if (status === 'done') return '已完成'
+  if (status === 'todo') return '办理中'
+  return '未开始'
+}
+
+function cycleDoneCount(nodes: LifecycleNode[]) {
+  return nodes.filter((node) => node.status === 'DONE').length
+}
 
 const channelPath = computed(
   () => data.value.channelPath || channelPathLabel({ ...channel.value, channelName: p.value.channelName }),
@@ -679,8 +697,17 @@ function nameInitial(name?: string) {
         </div>
         <div class="lifecycle-track">
           <template v-for="(cycle, cycleIdx) in lifecycleCycles" :key="cycle.cycleName">
-            <div class="life-cycle">
-              <div class="cycle-title">{{ cycle.cycleName }}</div>
+            <div class="life-cycle" :class="cycleStatus(cycle.nodes)">
+              <div class="cycle-head">
+                <div>
+                  <div class="cycle-kicker">周期 {{ String(cycle.cycleNo).padStart(2, '0') }}</div>
+                  <div class="cycle-title">{{ cycle.cycleName }}</div>
+                </div>
+                <div class="cycle-state">
+                  <span>{{ cycleStatusText(cycle.nodes) }}</span>
+                  <small>{{ cycleDoneCount(cycle.nodes) }}/{{ cycle.nodes.length }}</small>
+                </div>
+              </div>
               <div class="cycle-nodes">
                 <template v-for="(node, nodeIdx) in cycle.nodes" :key="node.nodeCode">
                   <div
@@ -1290,11 +1317,12 @@ function nameInitial(name?: string) {
 }
 
 .lifecycle-wrap {
-  background: #fff;
-  border: 1px solid #e8e8e8;
-  border-radius: 4px;
-  padding: 16px 20px 20px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  border: 1px solid #e6f0ff;
+  border-radius: 10px;
+  padding: 18px 20px 20px;
   margin-bottom: 16px;
+  box-shadow: 0 6px 18px rgba(0, 39, 102, 0.04);
 }
 .lifecycle-head {
   display: flex;
@@ -1304,7 +1332,7 @@ function nameInitial(name?: string) {
 }
 .lifecycle-title {
   font-weight: 600;
-  font-size: 15px;
+  font-size: 16px;
   color: #262626;
 }
 .lifecycle-hint {
@@ -1314,44 +1342,101 @@ function nameInitial(name?: string) {
 .lifecycle-track {
   display: flex;
   align-items: stretch;
-  gap: 0;
+  gap: 12px;
   overflow-x: auto;
+  padding-bottom: 2px;
 }
 .life-cycle {
-  flex: 1 0 220px;
-  min-width: 220px;
-  border: 1px solid #f0f0f0;
-  border-radius: 4px;
-  padding: 10px;
-  background: #fff;
+  position: relative;
+  flex: 1 0 236px;
+  min-width: 236px;
+  border: 1px solid #edf1f7;
+  border-radius: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 2px 10px rgba(15, 35, 70, 0.04);
 }
 .life-cycle:first-child {
-  flex-basis: 420px;
-  min-width: 420px;
+  flex-basis: 430px;
+  min-width: 430px;
+}
+.life-cycle.done {
+  border-color: #d9f7be;
+  background: linear-gradient(180deg, #fbfff7 0%, #f6ffed 100%);
+}
+.life-cycle.todo {
+  border-color: #91caff;
+  background: linear-gradient(180deg, #ffffff 0%, #eef6ff 100%);
+  box-shadow: 0 0 0 2px rgba(0, 100, 239, 0.08), 0 8px 22px rgba(0, 100, 239, 0.08);
+}
+.life-cycle.pending {
+  background: #fbfbfc;
+}
+.cycle-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.cycle-kicker {
+  font-size: 12px;
+  color: #8c8c8c;
+  line-height: 1;
+  margin-bottom: 6px;
 }
 .cycle-title {
-  font-size: 12px;
+  font-size: 15px;
   font-weight: 600;
+  color: #1f1f1f;
+  line-height: 1.2;
+}
+.cycle-state {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-size: 12px;
+  color: #595959;
+}
+.cycle-state span {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #f0f0f0;
+  color: #595959;
+}
+.cycle-state small {
   color: #8c8c8c;
-  margin-bottom: 8px;
+}
+.life-cycle.done .cycle-state span {
+  background: #d9f7be;
+  color: #237804;
+}
+.life-cycle.todo .cycle-state span {
+  background: #e6f4ff;
+  color: #0050b3;
 }
 .cycle-nodes {
   display: flex;
   align-items: stretch;
-  gap: 0;
+  gap: 8px;
 }
 .life-node {
   flex: 1;
   min-width: 0;
-  border: 1px solid #e8e8e8;
-  border-radius: 4px;
-  padding: 12px 16px;
+  border: 1px solid #edf1f7;
+  border-radius: 10px;
+  padding: 12px 14px;
   background: #fafafa;
   cursor: pointer;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
 }
 .life-node:hover {
   border-color: #91caff;
+  transform: translateY(-1px);
 }
 .life-node.done {
   background: #f6ffed;
@@ -1360,10 +1445,10 @@ function nameInitial(name?: string) {
 .life-node.todo {
   background: #fff;
   border: 2px solid #0064ef;
-  box-shadow: 0 0 0 2px rgba(0, 100, 239, 0.08);
+  box-shadow: 0 6px 16px rgba(0, 100, 239, 0.1);
 }
 .life-node.pending {
-  background: #fafafa;
+  background: #ffffff;
 }
 .node-head {
   display: flex;
@@ -1410,13 +1495,13 @@ function nameInitial(name?: string) {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
+  width: 10px;
   flex-shrink: 0;
-  color: #bfbfbf;
+  color: #c5d7f2;
   font-size: 10px;
 }
 .node-connector.inner {
-  width: 18px;
+  width: 12px;
 }
 
 .detail-card {
