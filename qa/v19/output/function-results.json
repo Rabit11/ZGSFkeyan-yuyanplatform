@@ -1,0 +1,292 @@
+{
+  "suite": "functions",
+  "layer": "Vue组件逻辑（API与岗位策略为测试替身；非浏览器、非后端权限证明）",
+  "cases": [
+    {
+      "id": "FN-AC01",
+      "stage": "项目验收",
+      "title": "未执行前置校验不得提交验收",
+      "source": "frontend/src/views/acceptance/Acceptance.vue",
+      "expected": "allPassed=false 且提交请求数=0",
+      "status": "PASS",
+      "evidence": "allPassed=false 且提交请求数=0",
+      "durationMs": 118,
+      "requirementIds": []
+    },
+    {
+      "id": "FN-AC02",
+      "stage": "项目验收",
+      "title": "任一前置项未通过阻断验收提交",
+      "source": "frontend/src/views/acceptance/Acceptance.vue",
+      "expected": "失败项保留且提交请求数=0",
+      "status": "PASS",
+      "evidence": "失败项保留且提交请求数=0",
+      "durationMs": 28,
+      "requirementIds": []
+    },
+    {
+      "id": "FN-AC03",
+      "stage": "项目验收",
+      "title": "全部校验通过后向当前项目提交一次",
+      "source": "frontend/src/views/acceptance/Acceptance.vue",
+      "expected": "只提交 projectId=101",
+      "status": "PASS",
+      "evidence": "只提交 projectId=101",
+      "durationMs": 22,
+      "requirementIds": []
+    },
+    {
+      "id": "FN-AC04",
+      "stage": "项目验收",
+      "title": "空校验结果不得提示校验通过",
+      "source": "frontend/src/views/acceptance/Acceptance.vue",
+      "expected": "allPassed=false 且不出现成功提示",
+      "status": "FAIL",
+      "evidence": "空数组校验返回了成功提示，和不可提交状态矛盾\n\ntrue !== false\n",
+      "durationMs": 13,
+      "requirementIds": []
+    },
+    {
+      "id": "FN-AC05",
+      "stage": "项目验收",
+      "title": "项目切换加载期间旧校验立即失效",
+      "source": "frontend/src/views/acceptance/Acceptance.vue",
+      "expected": "新项目加载未完成时不得发出验收提交",
+      "status": "FAIL",
+      "evidence": "新项目使用旧项目的前置校验结果发出了提交请求\n\n1 !== 0\n",
+      "durationMs": 13,
+      "requirementIds": []
+    },
+    {
+      "id": "FN-AC06",
+      "stage": "项目验收",
+      "title": "快速切换项目晚返回结果不得覆盖新项目",
+      "source": "frontend/src/views/acceptance/Acceptance.vue",
+      "expected": "projectId=202 时 detail.projectId 仍为202",
+      "status": "FAIL",
+      "evidence": "旧项目异步响应覆盖了当前验收信息\n\n101 !== 202\n",
+      "durationMs": 11,
+      "requirementIds": []
+    },
+    {
+      "id": "FN-AC07",
+      "stage": "项目验收",
+      "title": "连续点击验收提交防止重复请求",
+      "source": "frontend/src/views/acceptance/Acceptance.vue",
+      "expected": "前次请求未完成时只发出一次提交",
+      "status": "FAIL",
+      "evidence": "验收提交缺少处理中保护，连续点击发送两次请求\n\n2 !== 1\n",
+      "durationMs": 10,
+      "requirementIds": []
+    },
+    {
+      "id": "FN-AC08",
+      "stage": "项目验收",
+      "title": "未选择真实文件不能标记材料已上传",
+      "source": "frontend/src/views/acceptance/Acceptance.vue",
+      "expected": "缺少文件、文件ID或文件地址时不得登记上传成功",
+      "status": "FAIL",
+      "evidence": "只携带 fieldCode 就登记材料上传，未选择和传输文件\n\n1 !== 0\n",
+      "durationMs": 12,
+      "requirementIds": []
+    },
+    {
+      "id": "FN-AC09",
+      "stage": "项目验收",
+      "title": "无填报权限人员不可执行上传动作",
+      "source": "frontend/src/views/acceptance/Acceptance.vue",
+      "expected": "fill=false 时材料写入请求数=0",
+      "status": "FAIL",
+      "evidence": "上传处理函数未应用页面岗位授权；后端是否拒绝需集成验证\n\n1 !== 0\n",
+      "durationMs": 14,
+      "requirementIds": []
+    },
+    {
+      "id": "FN-AC10",
+      "stage": "项目验收",
+      "title": "不适用层级材料保持锁定",
+      "source": "frontend/src/views/acceptance/Acceptance.vue",
+      "expected": "locked=true 时不调用上传接口",
+      "status": "PASS",
+      "evidence": "locked=true 时不调用上传接口",
+      "durationMs": 11,
+      "requirementIds": []
+    },
+    {
+      "id": "FN-AC11",
+      "stage": "项目验收",
+      "title": "普通填报人不能执行验收办结",
+      "source": "frontend/src/views/acceptance/Acceptance.vue",
+      "expected": "audit=false 时不打开审核确认且无审核请求",
+      "status": "PASS",
+      "evidence": "audit=false 时不打开审核确认且无审核请求",
+      "durationMs": 9,
+      "requirementIds": []
+    },
+    {
+      "id": "FN-TR01",
+      "stage": "成果转化",
+      "title": "转化方式对应正确的形式选项",
+      "source": "frontend/src/views/transform/Transform.vue",
+      "expected": "型号=装机/未装机；市场=转让/许可/联合/投资/其他",
+      "status": "PASS",
+      "evidence": "型号=装机/未装机；市场=转让/许可/联合/投资/其他",
+      "durationMs": 31,
+      "requirementIds": []
+    },
+    {
+      "id": "FN-TR02",
+      "stage": "成果转化",
+      "title": "成果名称与所属项目缺失阻止保存",
+      "source": "frontend/src/views/transform/Transform.vue",
+      "expected": "空白新建表单不调用创建接口",
+      "status": "FAIL",
+      "evidence": "必填名称和项目未填写仍发送创建请求\n\n1 !== 0\n",
+      "durationMs": 13,
+      "requirementIds": []
+    },
+    {
+      "id": "FN-TR03",
+      "stage": "成果转化",
+      "title": "未选择项目不能借用首个项目计算权限",
+      "source": "frontend/src/views/transform/Transform.vue",
+      "expected": "selectedProject=null，不能以其他项目权限代替",
+      "status": "FAIL",
+      "evidence": "未选择项目时默认套用了列表第一个项目的权限上下文\n+ actual - expected\n\n+ {\n+   id: 101,\n+   name: '隔离项目A'\n+ }\n- null\n",
+      "durationMs": 11,
+      "requirementIds": []
+    },
+    {
+      "id": "FN-TR04",
+      "stage": "成果转化",
+      "title": "无填报权限阻止成果创建",
+      "source": "frontend/src/views/transform/Transform.vue",
+      "expected": "fill=false 时创建请求数=0",
+      "status": "PASS",
+      "evidence": "fill=false 时创建请求数=0",
+      "durationMs": 15,
+      "requirementIds": []
+    },
+    {
+      "id": "FN-TR05",
+      "stage": "成果转化",
+      "title": "已绑定但未交付成果不能自动进入已选清单",
+      "source": "frontend/src/views/transform/Transform.vue",
+      "expected": "bindIds 只含已交付记录",
+      "status": "FAIL",
+      "evidence": "仅禁止点击未交付行，但把既有未交付关联预选进提交清单\n\n'1,2' !== '2'\n",
+      "durationMs": 9,
+      "requirementIds": []
+    },
+    {
+      "id": "FN-TR06",
+      "stage": "成果转化",
+      "title": "无写权限人员不能确认成果关联",
+      "source": "frontend/src/views/transform/Transform.vue",
+      "expected": "fill/edit/submit=false 时绑定请求数=0",
+      "status": "FAIL",
+      "evidence": "确认绑定处理函数没有岗位权限拦截；不等同于证明后端可越权\n\n1 !== 0\n",
+      "durationMs": 10,
+      "requirementIds": []
+    },
+    {
+      "id": "FN-TR07",
+      "stage": "成果转化",
+      "title": "成果保存成功关闭填写页",
+      "source": "frontend/src/views/transform/Transform.vue",
+      "expected": "成功回调后 open=false 且请求绑定所选项目编号",
+      "status": "PASS",
+      "evidence": "成功回调后 open=false 且请求绑定所选项目编号",
+      "durationMs": 10,
+      "requirementIds": []
+    },
+    {
+      "id": "FN-TR08",
+      "stage": "成果转化",
+      "title": "成果保存失败保留表单",
+      "source": "frontend/src/views/transform/Transform.vue",
+      "expected": "请求失败后 open=true 且名称不丢失",
+      "status": "PASS",
+      "evidence": "请求失败后 open=true 且名称不丢失",
+      "durationMs": 11,
+      "requirementIds": []
+    },
+    {
+      "id": "FN-TR09",
+      "stage": "成果转化",
+      "title": "已有大于200条成果时不丢失后续页",
+      "source": "frontend/src/views/transform/Transform.vue",
+      "expected": "数据总量201时仍能翻页查看第201条",
+      "status": "FAIL",
+      "evidence": "页面强制只取前200条后本地分页，漏掉第201条\n\nfalse !== true\n",
+      "durationMs": 11,
+      "requirementIds": []
+    },
+    {
+      "id": "FN-PA01",
+      "stage": "项目验收",
+      "title": "协作评价等级边界正确",
+      "source": "frontend/src/views/acceptance/PartnerEval.vue",
+      "expected": "59不合格、60合格、80良好、90优秀、100优秀",
+      "status": "PASS",
+      "evidence": "59不合格、60合格、80良好、90优秀、100优秀",
+      "durationMs": 13,
+      "requirementIds": []
+    },
+    {
+      "id": "FN-PA02",
+      "stage": "项目验收",
+      "title": "无授权时不能提交协作单位评价",
+      "source": "frontend/src/views/acceptance/PartnerEval.vue",
+      "expected": "不弹出提交确认、不发送提交",
+      "status": "PASS",
+      "evidence": "不弹出提交确认、不发送提交",
+      "durationMs": 7,
+      "requirementIds": []
+    },
+    {
+      "id": "FN-IM01",
+      "stage": "实施阶段",
+      "title": "计划办结申请经过提交权限校验",
+      "source": "frontend/src/views/implement/Plan.vue",
+      "expected": "无 submit 权限时不调用办结接口",
+      "status": "PASS",
+      "evidence": "无 submit 权限时不调用办结接口",
+      "durationMs": 11,
+      "requirementIds": []
+    },
+    {
+      "id": "FN-IM02",
+      "stage": "实施阶段",
+      "title": "计划终审经过审核权限校验",
+      "source": "frontend/src/views/implement/Plan.vue",
+      "expected": "无 audit 权限时不调用终审接口",
+      "status": "PASS",
+      "evidence": "无 audit 权限时不调用终审接口",
+      "durationMs": 10,
+      "requirementIds": []
+    },
+    {
+      "id": "FN-IM03",
+      "stage": "实施阶段",
+      "title": "评估材料保存不能只登记名称就声称已上传",
+      "source": "frontend/src/views/implement/Evaluation.vue",
+      "expected": "未选择文件不报告材料上传成功",
+      "status": "FAIL",
+      "evidence": "仅提交名称、类型、日期和结果，未携带文件却提示材料已上传\n\ntrue !== false\n",
+      "durationMs": 8,
+      "requirementIds": []
+    },
+    {
+      "id": "FN-IM04",
+      "stage": "实施阶段",
+      "title": "未授权人员不能删除评估记录",
+      "source": "frontend/src/views/implement/Evaluation.vue",
+      "expected": "fill/edit/submit/audit=false 时不发出删除",
+      "status": "FAIL",
+      "evidence": "评估删除处理函数没有权限拦截；后端数据授权另验\n\n1 !== 0\n",
+      "durationMs": 7,
+      "requirementIds": []
+    }
+  ]
+}

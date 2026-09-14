@@ -1,0 +1,44 @@
+科研项目信息化管理平台 · 6006 全栈 + Redis/MinIO
+==============================================
+更新时间：2026-09-09
+
+公网：https://u476948-r3ys-6923790a.westd.seetacloud.com:8443/
+账号：admin / Admin@123
+
+------------------------------------------------------------
+运行拓扑
+------------------------------------------------------------
+浏览器
+  -> Node:6006（静态 + /api 反代）
+       -> Spring Boot:8080
+            -> MySQL:3306（业务库）
+            -> Redis:6379（登录 Token 会话 jti）
+            -> MinIO:9000（政策/附件对象存储）
+
+------------------------------------------------------------
+登录会话（Redis）
+------------------------------------------------------------
+- JWT 仍 HS256 签发，payload 增加 jti
+- 登录：SET rpm:token:{jti} = userId，TTL = expire-hours
+- 鉴权：签名通过且 Redis 存在该 jti
+- 登出：DEL rpm:token:{jti}（立即失效）
+
+------------------------------------------------------------
+对象存储（MinIO）
+------------------------------------------------------------
+- Bucket：rpm-attachments
+- 接口：
+  POST /api/files/upload?bizType=policy|declaration|acceptance|...
+  GET  /api/files/download?objectKey=...
+  DELETE /api/files?objectKey=...
+- 部署优先 quay.io/minio/minio:*-cpuv1（兼容老 CPU）；
+  当前环境 Docker bridge 受限时回退官方 linux-amd64 二进制同版本。
+
+------------------------------------------------------------
+技术栈摘要
+------------------------------------------------------------
+前端：Vue3 + Vite5 + TS + Ant Design Vue4 + Pinia + ECharts
+后端：Java17/21 + Spring Boot 3.2 + MyBatis-Plus 3.5.7
+     + Spring Security/JWT + Redis 会话 + MinIO SDK
+- Redis：当前运行 redis_version≥7（packages.redis.io；实测为 8.x，兼容 Redis 7 协议）
+- MinIO：优先 *-cpuv1 镜像；本机 Docker bridge 受限时使用同版本 linux-amd64 二进制（见 /root/autodl-tmp/minio-version.txt）

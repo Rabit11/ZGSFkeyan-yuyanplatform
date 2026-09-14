@@ -1,0 +1,37 @@
+﻿科研项目信息化管理平台 — 技术框架简要说明
+========================================
+
+一、整体架构
+前后端分离：Vue 前端 + Spring Boot 后端 + PolarDB（MySQL 兼容）数据库。
+业务覆盖项目全生命周期：总览 → 立项 → 实施 → 验收 → 成果转化 → 后评价。
+
+二、前端
+- 框架：Vue 3（组合式 API / script setup）
+- 构建：Vite 5 + TypeScript
+- UI：Ant Design Vue 4（经营管理类统一 UI 规范）
+- 状态：Pinia
+- 图表：ECharts 5
+- 路由：Vue Router（Hash 模式）
+- 说明：内置 Mock 数据层，可脱离后端独立演示
+
+三、后端
+- 语言 / 运行时：Java 17
+- 框架：Spring Boot 3.2
+- ORM：MyBatis-Plus 3.5.5
+- 安全：Spring Security 6 + JWT（HS256）
+- 接口：REST；文档 SpringDoc / Swagger UI
+- 默认端口：8080
+
+四、数据库
+- 阿里云 PolarDB（MySQL 8.0 兼容）
+- 库名：rpm，约 33 张业务表
+- 初始化脚本：backend/src/main/resources/db/schema.sql
+
+五、目录结构
+给会冉/
+  frontend/   前端工程
+  backend/    后端工程
+  docs/       设计与部署文档
+
+六、演示账号（Mock）
+admin / Admin@123（另有 pm01、chief01、mgr01、fin01，密码相同）

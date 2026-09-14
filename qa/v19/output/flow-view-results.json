@@ -1,0 +1,136 @@
+{
+  "suite": "flow-view",
+  "layer": "真实前端流程图/岗位解析函数；不证明后端API和消息投递",
+  "cases": [
+    {
+      "id": "FV-01",
+      "stage": "跨阶段",
+      "title": "办理人按指定工号准确匹配",
+      "source": "frontend/src/utils/flowActor.ts",
+      "expected": "指定工号可办，不同工号不同姓名不可办",
+      "status": "PASS",
+      "evidence": "指定工号可办，不同工号不同姓名不可办",
+      "requirementIds": []
+    },
+    {
+      "id": "FV-02",
+      "stage": "跨阶段",
+      "title": "同名但工号不同的人不能代替指定办理人",
+      "source": "frontend/src/utils/flowActor.ts",
+      "expected": "工号明确且不一致时不可因姓名相同放行",
+      "status": "FAIL",
+      "evidence": "工号不匹配后退回姓名匹配，放行同名不同人\n\ntrue !== false\n",
+      "requirementIds": []
+    },
+    {
+      "id": "FV-03",
+      "stage": "跨阶段",
+      "title": "姓名前缀不能冒充完整指定姓名",
+      "source": "frontend/src/utils/flowActor.ts",
+      "expected": "姓名较短不能匹配另一个完整姓名",
+      "status": "FAIL",
+      "evidence": "startsWith 姓名前缀判定导致错误匹配\n\ntrue !== false\n",
+      "requirementIds": []
+    },
+    {
+      "id": "FV-04",
+      "stage": "跨阶段",
+      "title": "岗位缺失时不能只按角色开放审核",
+      "source": "frontend/src/utils/workDuty.ts",
+      "expected": "无项目岗位人员时 audit.can=false 且显示待指定",
+      "status": "FAIL",
+      "evidence": "未指定项目审核人时仍按任职身份开放审核\n\ntrue !== false\n",
+      "requirementIds": []
+    },
+    {
+      "id": "FV-05",
+      "stage": "项目验收",
+      "title": "未完成节点阻断前置校验展示",
+      "source": "frontend/src/utils/acceptFlow.ts",
+      "expected": "未闭环里程碑 passed=false",
+      "status": "PASS",
+      "evidence": "未闭环里程碑 passed=false",
+      "requirementIds": []
+    },
+    {
+      "id": "FV-06",
+      "stage": "项目验收",
+      "title": "绿色展示不能覆盖待审核业务状态",
+      "source": "frontend/src/utils/acceptFlow.ts",
+      "expected": "CLOSE_UNIT_AUDIT即使误带绿色也不能显示闭环通过",
+      "status": "FAIL",
+      "evidence": "颜色标签被当作审核通过的替代证据\n\ntrue !== false\n",
+      "requirementIds": []
+    },
+    {
+      "id": "FV-07",
+      "stage": "项目验收",
+      "title": "验收流转图保留全部六类前置检查",
+      "source": "frontend/src/utils/acceptFlow.ts",
+      "expected": "里程碑、交付物、外协、经费、整改、材料均有校验展示",
+      "status": "FAIL",
+      "evidence": "当前仅返回4类校验，遗漏外协事项与验收材料齐套\n\nfalse !== true\n",
+      "requirementIds": []
+    },
+    {
+      "id": "FV-08",
+      "stage": "项目验收",
+      "title": "验收完成状态不能凭空生成已上传附件",
+      "source": "frontend/src/utils/acceptFlow.ts",
+      "expected": "没有实际文件信息不应展示已上传、虚构文件名或大小",
+      "status": "FAIL",
+      "evidence": "仅因验收DONE生成了已上传PDF及默认128KB信息\n\ntrue !== false\n",
+      "requirementIds": []
+    },
+    {
+      "id": "FV-09",
+      "stage": "项目验收",
+      "title": "缺失验收办理人不得回填固定演示工号",
+      "source": "frontend/src/utils/acceptFlow.ts",
+      "expected": "非系统节点无岗位来源时保持待指定",
+      "status": "FAIL",
+      "evidence": "项目团队为空仍显示固定花名册中的办理人\n\ntrue !== false\n",
+      "requirementIds": []
+    },
+    {
+      "id": "FV-10",
+      "stage": "项目验收",
+      "title": "不同项目层级开放对应验收材料",
+      "source": "frontend/src/utils/acceptFlow.ts",
+      "expected": "国家三级/地方两级/公司两级",
+      "status": "PASS",
+      "evidence": "国家三级/地方两级/公司两级",
+      "requirementIds": []
+    },
+    {
+      "id": "FV-11",
+      "stage": "成果转化",
+      "title": "流程摘要处理人须与当前节点一致",
+      "source": "frontend/src/utils/transformFlow.ts",
+      "expected": "当前二级审核摘要显示审核人甲而非经办人乙",
+      "status": "FAIL",
+      "evidence": "当前节点审核人与顶部当前流程摘要使用了不同人员\n\nfalse !== true\n",
+      "requirementIds": []
+    },
+    {
+      "id": "FV-12",
+      "stage": "成果转化",
+      "title": "缺失成果办理人不得回填固定演示工号",
+      "source": "frontend/src/utils/transformFlow.ts",
+      "expected": "缺失岗位的业务节点显示待指定",
+      "status": "FAIL",
+      "evidence": "无岗位仍按固定演示花名册显示负责人和审核人\n\ntrue !== false\n",
+      "requirementIds": []
+    },
+    {
+      "id": "FV-13",
+      "stage": "实施阶段",
+      "title": "待销项审核节点不得计为完成",
+      "source": "frontend/src/utils/implementFlow.ts",
+      "expected": "CLOSE_DEPT_AUDIT时msDone=0，节点审核保持当前",
+      "status": "PASS",
+      "evidence": "CLOSE_DEPT_AUDIT时msDone=0，节点审核保持当前",
+      "requirementIds": []
+    }
+  ]
+}

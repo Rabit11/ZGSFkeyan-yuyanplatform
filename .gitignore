@@ -1,0 +1,43 @@
+# Dependencies and build outputs
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+backend/target/
+backend/.mvn/wrapper/maven-wrapper.jar
+
+# Local runtime and deployment artifacts
+.deploy-libs/
+deploy/
+autodl.txt
+*.tar
+*.tar.gz
+*.zip
+*.7z
+
+# Environment and machine-local config
+.env
+.env.*
+frontend/.env
+frontend/.env.*
+backend/src/main/resources/application.yml
+backend/src/main/resources/application-*.yml
+
+# Release snapshots and exported deployment bundles
+releases/
+V6bushu/
+
+# Caches and generated files
+__pycache__/
+*.pyc
+.pytest_cache/
+.cache/
+logs/
+*.log
+qa/output/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+~$*
+.$*

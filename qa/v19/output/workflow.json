@@ -1,0 +1,31 @@
+{
+  "suite": "workflow",
+  "layer": "真实Java控制器+FlowAuditGuard/内存mapper（不含SQL与Spring鉴权）",
+  "cases": [
+    {
+      "id": "WF-000",
+      "title": "真实后端隔离运行环境",
+      "status": "BLOCKED",
+      "evidence": "Java compilation unavailable/failed: ����: ��Ч�ı��: -J-Dfile.encoding=UTF-8\r\n�÷�: javac <ѡ��> <Դ�ļ�>\r\nʹ�� --help ���г����ܵ�ѡ��\r\n",
+      "requirementIds": []
+    },
+    {
+      "id": "WF-090",
+      "stage": "跨阶段",
+      "source": "FlowAuditGuard + mapper infrastructure",
+      "title": "真实数据库事务、SQL数据隔离及并发重复提交",
+      "status": "BLOCKED",
+      "evidence": "Mapper使用单项目内存夹具；selectList/selectOne直接返回夹具，不执行SQL过滤。身份测试仅验证控制器/guard对指定人员的判断，不能证明数据库行级范围、Spring鉴权、事务/并发语义。",
+      "requirementIds": []
+    },
+    {
+      "id": "WF-091",
+      "stage": "实施阶段",
+      "source": "FundController + dashboard/storage integration",
+      "title": "核销后总部看板同步与真实附件持久化",
+      "status": "BLOCKED",
+      "evidence": "本套验证控制器核销状态和待办生成；总部聚合查询、真实对象存储与完整前后端E2E需要隔离部署环境。",
+      "requirementIds": []
+    }
+  ]
+}
