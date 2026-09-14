@@ -25,3 +25,10 @@ export function validatePackage(form: Partial<TransformPackage>, evidence: any[]
   if (form.status === 'DONE' && (!form.actualDate || !evidence.length)) return '完成转化必须填写实际日期并上传成效佐证'
   return ''
 }
+
+export function confirmedStatus(row: Partial<TransformPackage>) {
+  return row.confirmedStatus || (row.workflowStatus === 'RECORDED' || row.legacyRecord || !row.workflowStatus ? row.status : row.status === 'DONE' ? 'SIGNED' : row.status)
+}
+export function confirmedActualDate(row: Partial<TransformPackage>) {
+  return row.confirmedActualDate || (row.workflowStatus === 'RECORDED' || row.legacyRecord || !row.workflowStatus ? row.actualDate : undefined)
+}

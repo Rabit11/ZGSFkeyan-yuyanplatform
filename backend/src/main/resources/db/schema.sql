@@ -623,6 +623,7 @@ CREATE TABLE `achv_transform` (
   `plan_date`     DATE        DEFAULT NULL,
   `actual_date`   DATE        DEFAULT NULL,
   `status`        VARCHAR(32) NOT NULL DEFAULT 'NOT_STARTED' COMMENT 'NOT_STARTED未启动/NEGOTIATING洽谈中/SIGNED已签协议/DONE已完成',
+  `legacy_record` TINYINT NOT NULL DEFAULT 0 COMMENT '历史来源待核对，不表示新流程已备案',
   `reported_status` VARCHAR(32) DEFAULT NULL COMMENT '本轮填报的转化进度，备案后同步至status',
   `reported_actual_date` DATE DEFAULT NULL COMMENT '本轮填报的实际转化时间，备案后同步至actual_date',
   `workflow_status` VARCHAR(32) NOT NULL DEFAULT 'DRAFT' COMMENT 'DRAFT/UNIT_REVIEW/RETURNED/HQ_RECORD/RECORDED',

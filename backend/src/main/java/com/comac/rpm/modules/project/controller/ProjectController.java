@@ -118,6 +118,8 @@ public class ProjectController {
     @Autowired
     private AchvTransformMapper transformMapper;
     @Autowired
+    private com.comac.rpm.modules.transform.TransformAccess transformAccess;
+    @Autowired
     private ProjPostEvalMapper postEvalMapper;
     @Autowired
     private FlowAuditGuard flowAuditGuard;
@@ -125,6 +127,8 @@ public class ProjectController {
     private SysAuditLogMapper auditLogMapper;
     @Autowired
     private SysUserMapper userMapper;
+    @Autowired
+    private com.comac.rpm.modules.supplement.SupplementService supplementService;
 
     /**
      * 分页查询项目台账
@@ -470,8 +474,14 @@ public class ProjectController {
                 new LambdaQueryWrapper<ProjDeliverable>().eq(ProjDeliverable::getProjectId, id)));
         map.put("partnerEvals", partnerEvalMapper.selectList(
                 new LambdaQueryWrapper<PartnerEval>().eq(PartnerEval::getProjectId, id)));
-        map.put("transforms", transformMapper.selectList(
-                new LambdaQueryWrapper<AchvTransform>().eq(AchvTransform::getProjectId, id)));
+        List<AchvTransform> visibleTransforms = transformAccess.canRead(id)
+                ? transformMapper.selectList(new LambdaQueryWrapper<AchvTransform>().eq(AchvTransform::getProjectId, id))
+                : List.of();
+        for (AchvTransform transform : visibleTransforms) {
+            transform.setConfirmedStatus(transform.getStatus());
+            transform.setConfirmedActualDate(transform.getActualDate());
+        }
+        map.put("transforms", visibleTransforms);
         map.put("postEval", postEvalMapper.selectOne(
                 new LambdaQueryWrapper<ProjPostEval>().eq(ProjPostEval::getProjectId, id).last("LIMIT 1")));
         if (project != null && DATA_SOURCE_FORM_MAINT.equals(project.getDataSource())) {
@@ -536,109 +546,25 @@ public class ProjectController {
     /** 表单维护导入项目：项目负责人上传待维护材料。 */
     @PostMapping("/{id}/maintenance/materials")
     public R<Long> saveMaintenanceMaterial(@PathVariable("id") Long id, @RequestBody Map<String, Object> body) {
-        Map<String, Object> payload = body == null ? new HashMap<>() : body;
-        ProjInfo project = projInfoMapper.selectById(id);
-        if (!isFormMaintProject(project)) {
-            return R.fail(404, "仅表单维护导入的待维护项目可上传维护材料");
-        }
-        String status = normalizeMaintenanceStatus(project, listMaintenanceMaterials(id));
-        if (MAINT_STATUS_UNIT_REVIEW.equals(status) || MAINT_STATUS_HQ_REVIEW.equals(status)
-                || MAINT_STATUS_DONE.equals(status)) {
-            return R.fail(403, "当前项目已进入审核流程，不能继续上传维护材料");
-        }
-        flowAuditGuard.requireActors(id, "上传待维护项目维护材料", "owner");
-        ProjMaterial m = new ProjMaterial();
-        m.setBizType(MAINT_BIZ_TYPE);
-        m.setBizId(id);
-        m.setFieldCode(String.valueOf(payload.getOrDefault("fieldCode", "MAINTAIN_MATERIAL")));
-        m.setFieldName(String.valueOf(payload.getOrDefault("fieldName", "维护材料")));
-        m.setFileName(String.valueOf(payload.getOrDefault("fileName", "")));
-        m.setFileUrl(String.valueOf(payload.getOrDefault("fileUrl", "")));
-        Object fileSize = payload.get("fileSize");
-        if (fileSize instanceof Number) {
-            m.setFileSize(((Number) fileSize).longValue());
-        }
-        m.setVersion(1);
-        m.setRequired(0);
-        m.setLocked(0);
-        m.setUploadedBy(UserContext.getUsername());
-        m.setUploadedAt(LocalDateTime.now());
-        materialMapper.insert(m);
-        if (project.getAcceptStatus() == null || project.getAcceptStatus().isBlank()
-                || MAINT_STATUS_REJECTED.equals(project.getAcceptStatus())) {
-            updateMaintenanceStatus(id, MAINT_STATUS_DRAFT);
-        }
-        auditLogMapper.write("PROJECT", "UPLOAD", "PROJECT", id,
-                "上传待维护项目维护材料：" + m.getFileName());
-        return R.ok(m.getId());
+        return R.fail(410, "请从左侧导入项目补录入口办理，旧维护接口已停用");
     }
 
     /** 表单维护导入项目：项目负责人提交本单位科技管理部负责人审核。 */
     @PostMapping("/{id}/maintenance/submit")
     public R<Boolean> submitMaintenance(@PathVariable("id") Long id) {
-        ProjInfo project = projInfoMapper.selectById(id);
-        if (!isFormMaintProject(project)) {
-            return R.fail(404, "仅表单维护导入的待维护项目可提交维护审核");
-        }
-        List<ProjMaterial> materials = listMaintenanceMaterials(id);
-        if (materials.isEmpty()) {
-            return R.fail(400, "请先上传维护相关材料");
-        }
-        String status = normalizeMaintenanceStatus(project, materials);
-        if (!MAINT_STATUS_DRAFT.equals(status) && !MAINT_STATUS_REJECTED.equals(status)) {
-            return R.fail(403, "当前维护流程状态不可提交");
-        }
-        flowAuditGuard.requireActors(id, "提交待维护项目维护材料", "owner");
-        updateMaintenanceStatus(id, MAINT_STATUS_UNIT_REVIEW);
-        auditLogMapper.write("PROJECT", "SUBMIT", "PROJECT", id,
-                "待维护项目提交本单位科技管理部负责人审核：" + project.getName());
-        return R.ok(true);
+        return R.fail(410, "请从左侧导入项目补录入口办理，旧维护接口已停用");
     }
 
     /** 表单维护导入项目：本单位科技管理部负责人审核。 */
     @PostMapping("/{id}/maintenance/unit-audit")
     public R<Boolean> auditMaintenanceByUnit(@PathVariable("id") Long id, @RequestBody Map<String, Object> body) {
-        ProjInfo project = projInfoMapper.selectById(id);
-        if (!isFormMaintProject(project)) {
-            return R.fail(404, "仅表单维护导入的待维护项目可审核");
-        }
-        if (!MAINT_STATUS_UNIT_REVIEW.equals(normalizeMaintenanceStatus(project, listMaintenanceMaterials(id)))) {
-            return R.fail(403, "当前项目不在本单位科技管理部审核节点");
-        }
-        if (!canUnitMaintainAudit(project)) {
-            return R.fail(403, "仅本单位科技管理部负责人可审核");
-        }
-        boolean pass = body == null || !Boolean.FALSE.equals(body.get("pass"));
-        saveMaintenanceAuditRecord(id, pass ? "UNIT_AUDIT_PASS" : "UNIT_AUDIT_REJECT",
-                pass ? "单位审核通过" : "单位审核退回",
-                body == null ? "" : String.valueOf(body.getOrDefault("opinion", "")));
-        updateMaintenanceStatus(id, pass ? MAINT_STATUS_HQ_REVIEW : MAINT_STATUS_REJECTED);
-        auditLogMapper.write("PROJECT", pass ? "APPROVE" : "REJECT", "PROJECT", id,
-                (pass ? "本单位科技管理部负责人审核通过：" : "本单位科技管理部负责人退回：") + project.getName());
-        return R.ok(true);
+        return R.fail(410, "请从左侧导入项目补录入口办理，旧维护接口已停用");
     }
 
     /** 表单维护导入项目：总部主管终审。 */
     @PostMapping("/{id}/maintenance/hq-audit")
     public R<Boolean> auditMaintenanceByHq(@PathVariable("id") Long id, @RequestBody Map<String, Object> body) {
-        ProjInfo project = projInfoMapper.selectById(id);
-        if (!isFormMaintProject(project)) {
-            return R.fail(404, "仅表单维护导入的待维护项目可审核");
-        }
-        if (!MAINT_STATUS_HQ_REVIEW.equals(normalizeMaintenanceStatus(project, listMaintenanceMaterials(id)))) {
-            return R.fail(403, "当前项目不在总部主管审核节点");
-        }
-        if (!canHqMaintainAudit()) {
-            return R.fail(403, "仅总部主管可审核");
-        }
-        boolean pass = body == null || !Boolean.FALSE.equals(body.get("pass"));
-        saveMaintenanceAuditRecord(id, pass ? "HQ_AUDIT_PASS" : "HQ_AUDIT_REJECT",
-                pass ? "总部审核通过" : "总部审核退回",
-                body == null ? "" : String.valueOf(body.getOrDefault("opinion", "")));
-        updateMaintenanceStatus(id, pass ? MAINT_STATUS_DONE : MAINT_STATUS_REJECTED);
-        auditLogMapper.write("PROJECT", pass ? "APPROVE" : "REJECT", "PROJECT", id,
-                (pass ? "总部主管审核通过：" : "总部主管退回：") + project.getName());
-        return R.ok(true);
+        return R.fail(410, "请从左侧导入项目补录入口办理，旧维护接口已停用");
     }
 
     private boolean isFormMaintProject(ProjInfo project) {
@@ -872,6 +798,7 @@ public class ProjectController {
      */
     @PutMapping("/{id}")
     public R<Boolean> update(@PathVariable("id") Long id, @RequestBody ProjInfo body) {
+        supplementService.guardSourceEdit(id);
         ProjInfo existing = projInfoMapper.selectById(id);
         if (existing == null) return R.fail(404, "项目不存在或已删除");
         if ("FILING".equals(existing.getStatus()) && body.getStatus() != null
@@ -925,6 +852,7 @@ public class ProjectController {
     @PutMapping("/form-maint/{id}")
     public R<Boolean> updateFromFormMaint(@PathVariable("id") Long id, @RequestBody ProjInfo body) {
         flowAuditGuard.requireAdmin("表单维护编辑项目");
+        supplementService.guardSourceEdit(id);
         ProjInfo existing = projInfoMapper.selectById(id);
         if (existing == null) return R.fail(404, "项目不存在或已删除");
         body.setId(id);

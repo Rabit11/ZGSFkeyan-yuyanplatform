@@ -1,5 +1,5 @@
 -- 成果转化增量迁移；先备份，再在部署新后端前执行。兼容 MySQL 8 / PolarDB。
--- 可重复执行，不重建业务表。历史“已完成”先保留为本轮填报值，完成审核备案后才进入全局闭环统计。
+-- 可重复执行，不重建业务表。历史“已完成”先保留为本轮填报值；并标记历史来源待核对。
 SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='achv_transform' AND column_name='workflow_status')=0, 'ALTER TABLE achv_transform ADD COLUMN workflow_status VARCHAR(32) NOT NULL DEFAULT ''DRAFT''', 'SELECT 1');
 PREPARE transform_migration FROM @ddl; EXECUTE transform_migration; DEALLOCATE PREPARE transform_migration;
 SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='achv_transform' AND column_name='reported_status')=0, 'ALTER TABLE achv_transform ADD COLUMN reported_status VARCHAR(32) NULL', 'SELECT 1');
@@ -13,11 +13,15 @@ PREPARE transform_migration FROM @ddl; EXECUTE transform_migration; DEALLOCATE P
 SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='achv_transform' AND column_name='history_json')=0, 'ALTER TABLE achv_transform ADD COLUMN history_json LONGTEXT NULL', 'SELECT 1');
 PREPARE transform_migration FROM @ddl; EXECUTE transform_migration; DEALLOCATE PREPARE transform_migration;
 
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='achv_transform' AND column_name='legacy_record')=0, 'ALTER TABLE achv_transform ADD COLUMN legacy_record TINYINT NOT NULL DEFAULT 0', 'SELECT 1');
+PREPARE transform_migration FROM @ddl; EXECUTE transform_migration; DEALLOCATE PREPARE transform_migration;
+
 UPDATE achv_transform
 SET reported_status=status,
     reported_actual_date=actual_date,
     status=IF(status='DONE','SIGNED',status),
     actual_date=NULL,
+    legacy_record=1,
     history_json=COALESCE(history_json,'[]')
 WHERE reported_status IS NULL;
 

@@ -53,6 +53,18 @@ export const routes: RouteRecordRaw[] = [
           },
         ],
       },
+      {
+        path: 'supplement',
+        name: 'Supplement',
+        redirect: '/supplement/mine',
+        meta: { title: '导入项目补录', icon: 'FileAddOutlined' },
+        children: [
+          { path: 'mine', name: 'SupplementMine', component: () => import('@/views/supplement/ProjectList.vue'), meta: { title: '我的补录', supplementView: 'mine' } },
+          { path: 'review', name: 'SupplementReview', component: () => import('@/views/supplement/ProjectList.vue'), meta: { title: '待我审核', supplementView: 'review' } },
+          { path: 'history', name: 'SupplementHistory', component: () => import('@/views/supplement/ProjectList.vue'), meta: { title: '补录记录', supplementView: 'history' } },
+          { path: 'project/:id', name: 'SupplementWorkspace', component: () => import('@/views/supplement/Workspace.vue'), meta: { title: '信息与材料补录', hidden: true, activeMenu: '/supplement/mine' } },
+        ],
+      },
       /* ---------------- 立项阶段 ---------------- */
       {
         path: 'initiation',

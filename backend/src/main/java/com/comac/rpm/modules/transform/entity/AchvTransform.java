@@ -73,6 +73,15 @@ public class AchvTransform {
     /** 填报进度；status 保留供既有台账/看板聚合的已确认进度。 */
     private String reportedStatus;
     private LocalDate reportedActualDate;
+    /** 历史来源待核对；不表示通过本模块的新审核流程。 */
+    private Boolean legacyRecord;
+    @TableField(exist = false)
+    private String confirmedStatus;
+    @TableField(exist = false)
+    private LocalDate confirmedActualDate;
+    /** 历史成果包所属项目已不存在，仅管理员可只读核对。 */
+    @TableField(exist = false)
+    private Boolean orphanedProject;
     private Long revision;
     private String evidenceJson;
     private String historyJson;
