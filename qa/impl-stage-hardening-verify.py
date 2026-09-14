@@ -101,6 +101,10 @@ r = call('POST', '/api/milestones/%d/close' % overdue['id'], owner, {'lagReason'
 after = call('GET', '/api/milestones/%d' % overdue['id'], owner)['data']
 check('带滞后原因销项进入 CLOSE_DEPT_AUDIT（未直接 DONE）', r.get('code') == 0 and after['status'] == 'CLOSE_DEPT_AUDIT' and after.get('lagReason'), after)
 
+# F08：销项审核中佐证材料锁定
+r = call('POST', '/api/milestones/%d/materials' % overdue['id'], owner, {'objectKey': up['data']['objectKey'], 'fileName': 'evidence2.txt', 'fileUrl': up['data']['fileUrl'], 'fileSize': 13})
+check('F08 销项审核中替换佐证被拒', r.get('code') != 0 and '锁定' in r.get('msg', ''), r)
+
 # 7. 销项审核：非办理人被拒，两级通过后 DONE
 r = call('POST', '/api/milestones/%d/close-audit' % overdue['id'], owner, {'pass': True})
 check('项目负责人不能审自己的销项', r.get('code') == 403, r)
@@ -114,6 +118,17 @@ check('单位负责人终审通过 → DONE/GREEN，记审核人', r.get('code')
 # 8. 删除：DONE 节点不可删
 r = call('DELETE', '/api/milestones/%d' % overdue['id'], owner)
 check('已完成节点不能删除', r.get('code') != 0, r)
+
+# F07：基线节点名称/预算不能普通保存
+if blue.get('baselinePlanDate'):
+    r = call('PUT', '/api/milestones/%d' % blue['id'], owner, {'name': blue['name'] + '-改名', 'budget': blue['budget']})
+    check('F07 基线节点改名被拒（走数据变更）', r.get('code') == 400 and '数据变更' in r.get('msg', ''), r)
+    r = call('PUT', '/api/milestones/%d' % blue['id'], owner, {'name': blue['name'], 'budget': (blue['budget'] or 0) + 1})
+    check('F07 基线节点改预算被拒（走数据变更）', r.get('code') == 400 and '数据变更' in r.get('msg', ''), r)
+else:
+    check('F07 样本节点已进入基线（前置条件）', False, blue)
+r = call('PUT', '/api/projects/2/annual-plan', owner, {'year': 2026, 'annualGoal': '改动已存档年度目标'})
+check('F07 已存档年度目标不能直接修改', r.get('code') == 403, r)
 
 # 9. 延期：生成变更单 → 二级初审 → 总部终审 → 回写日期
 NEWDATE = (datetime.date.fromisoformat(blue['planDate']) + datetime.timedelta(days=1)).isoformat()
@@ -146,7 +161,7 @@ check('项目团队不能新建台账项目', r.get('code') == 403, r)
 
 # 11. 基本信息草稿 → 四级审批 → 台账更新
 d = call('GET', '/api/projects/2/basic-draft', owner)['data']
-check('basic-draft 初始 NONE/APPROVED 且 canEdit', d['status'] in ('NONE', 'APPROVED') and d['canEdit'], d)
+check('basic-draft 未在审批中且 canEdit', d['status'] != 'APPROVING' and d['canEdit'], d)
 payload = {k: p.get(k) for k in ['name', 'goal', 'startDate', 'endDate', 'levelCode', 'filingDept', 'channelId', 'leadOrgName', 'mainWork', 'totalFund', 'major1', 'major2', 'ownerName']}
 payload['goal'] = (p.get('goal') or '').split('【审批补充')[0] + '【审批补充' + STAMP + '：新增余度重构半物理验证目标】'
 payload['participants'] = [{'orgName': '北京航空航天大学', 'workContent': '余度架构建模'}, {'orgName': '中航工业某所', 'workContent': '试验验证'}]
@@ -174,6 +189,21 @@ r = call('POST', '/api/projects/2/basic-draft/audit', hq, {'pass': True, 'opinio
 d = call('GET', '/api/projects/2/basic-draft', owner)['data']
 p_after = call('GET', '/api/projects/2', owner)['data']
 check('总部确认 → APPROVED 且台账已更新（目标+参研单位）', r.get('code') == 0 and d['status'] == 'APPROVED' and ('审批补充' + STAMP) in (p_after.get('goal') or '') and len(p_after.get('participants') or []) == 2, (d.get('status'), p_after.get('goal'), p_after.get('participants')))
+
+# F05：草稿里拟议的岗位不能授予审批权（审核人按台账团队解析）
+hack = dict(payload)
+hack['teamMembers'] = [{'roleName': '项目负责人', 'userName': '林晚晴', 'employeeNo': '100012', 'groupCode': 'TECH'},
+                       {'roleName': '单位科技部长', 'userName': '林晚晴', 'employeeNo': '100012', 'groupCode': 'MGMT'}]
+r = call('PUT', '/api/projects/2/basic-draft', owner, hack)
+check('F05 保存把自己指为单位科技部长的草稿', r.get('code') == 0, r)
+r = call('POST', '/api/projects/2/basic-draft/submit', owner)
+r = call('POST', '/api/projects/2/basic-draft/audit', owner, {'pass': True, 'opinion': '自审1'})
+d = call('GET', '/api/projects/2/basic-draft', owner)['data']
+r = call('POST', '/api/projects/2/basic-draft/audit', owner, {'pass': True, 'opinion': '自审2'})
+check('F05 负责人不能自审单位科技管理部节点', r.get('code') == 403 and d.get('flowNode') == 'UNIT_TECH', (r, d.get('flowNode')))
+# 由真正的单位负责人退回，恢复状态
+r = call('POST', '/api/projects/2/basic-draft/audit', unit, {'pass': False, 'opinion': '拟议岗位不合规，退回'})
+check('F05 单位负责人可退回该草稿', r.get('code') == 0, r)
 
 # 12. 数据范围
 mine = call('GET', '/api/milestones/mine', owner)['data']

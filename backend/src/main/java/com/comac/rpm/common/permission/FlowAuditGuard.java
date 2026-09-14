@@ -27,12 +27,17 @@ import java.util.Set;
 @Component
 public class FlowAuditGuard {
 
+    /** 总部全量可见：总部处长/主管、总部财务、公司领导（管理员另判） */
     private static final Set<String> HQ_SCOPE = new HashSet<>(Arrays.asList(
-            "hqHead", "hqStaff", "finHq", "chief1", "leader"));
+            "hqHead", "hqStaff", "finHq", "leader"));
 
-    /** 台账直接编辑（不走基本信息审批流）的管理身份 */
+    /** 仅看本人关联项目：项目团队 + 责任总师（需求：总师查看本人经手项目） */
+    private static final Set<String> TEAM_SCOPE = new HashSet<>(Arrays.asList(
+            "owner", "contactLogin", "techLead", "projectPm", "chief1", "chief2"));
+
+    /** 表单维护导入项目的台账直接编辑身份（管理团队）；已立项项目的修改一律走审批/变更；管理员只做运维 */
     private static final Set<String> LEDGER_EDIT_SCOPE = new HashSet<>(Arrays.asList(
-            "admin", "hqHead", "hqStaff", "unitHead", "unitStaff"));
+            "hqHead", "hqStaff", "unitHead", "unitStaff"));
 
     /** 任职身份 → 项目团队岗位编码/名称，用于指定到人 */
     private static final Map<String, String[]> IDENTITY_ROLE_KEYS = new HashMap<>();
@@ -90,6 +95,15 @@ public class FlowAuditGuard {
         return "admin".equals(identityCode) || HQ_SCOPE.contains(identityCode);
     }
 
+    /** 项目团队 / 责任总师：只看本人关联项目 */
+    public static boolean isTeamScopeIdentity(String identityCode) {
+        return TEAM_SCOPE.contains(identityCode);
+    }
+
+    public static boolean isFinanceIdentity(String identityCode) {
+        return "finHq".equals(identityCode) || "finHead".equals(identityCode) || "finStaff".equals(identityCode);
+    }
+
     public boolean isLedgerEditor(SysUser u) {
         return LEDGER_EDIT_SCOPE.contains(identityOf(u));
     }
@@ -144,13 +158,15 @@ public class FlowAuditGuard {
         if (p == null) {
             return false;
         }
-        if (p.getOrgId() != null && p.getOrgId().equals(u.getOrgId())) {
+        if (matchesOwnerLabel(p.getOwnerName(), u) || isTeamMember(projectId, u)) {
             return true;
         }
-        if (matchesOwnerLabel(p.getOwnerName(), u)) {
-            return true;
+        // 项目团队 / 总师：不是成员就不可见，同单位也不行
+        if (isTeamScopeIdentity(code)) {
+            return false;
         }
-        return isTeamMember(projectId, u);
+        // 单位管理团队 / 单位财务 / 承担部门负责人：本单位项目
+        return p.getOrgId() != null && p.getOrgId().equals(u.getOrgId());
     }
 
     public void requireProjectAccess(Long projectId) {

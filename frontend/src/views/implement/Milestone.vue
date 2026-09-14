@@ -156,8 +156,10 @@ function isOverdue(row: any) {
 function evidenceMaterials(row: any) {
   return ((row?.materials || []) as any[]).filter((m) => m.fieldCode !== 'PLAN_TEMPLATE')
 }
-function canEditRow(row: any) {
-  return row.status !== 'DONE' && !inAudit(row)
+/** 编辑：仅填报人、节点未完成/未在审核、且未进入清单基线（进基线后名称/预算走数据变更，日期走延期申请） */
+function canEditRow(row: any, board?: any) {
+  if (row.status === 'DONE' || inAudit(row) || row.baselinePlanDate) return false
+  return board ? boardCan(board, 'fill') : true
 }
 function remainText(row: any) {
   if (row.status === 'DONE') return `完成 ${fmtDate(row.actualDate)}`
@@ -576,17 +578,18 @@ async function removeRow(row: any) {
         <a-row :gutter="16">
           <a-col :span="12">
             <a-form-item label="本年度目标">
-              <a-textarea v-model:value="board.annualGoal" :rows="2" :disabled="annualLocked(board) || !boardCan(board, 'fill')" placeholder="填写本年度总体目标" />
+              <a-textarea v-model:value="board.annualGoal" :rows="2" :disabled="annualLocked(board) || !!board.annualArchived || !boardCan(board, 'fill')" placeholder="填写本年度总体目标" />
             </a-form-item>
           </a-col>
           <a-col :span="12">
             <a-form-item label="年度计划说明">
-              <a-textarea v-model:value="board.planContent" :rows="2" :disabled="annualLocked(board) || !boardCan(board, 'fill')" placeholder="填写年度任务、考核指标及工作安排" />
+              <a-textarea v-model:value="board.planContent" :rows="2" :disabled="annualLocked(board) || !!board.annualArchived || !boardCan(board, 'fill')" placeholder="填写年度任务、考核指标及工作安排" />
             </a-form-item>
           </a-col>
         </a-row>
         <a-space>
-          <a-button v-if="boardCan(board, 'fill')" type="link" :disabled="annualLocked(board)" :loading="!!annualSaving[board.projectId]" @click="saveAnnual(board)">保存年度目标</a-button>
+          <a-button v-if="boardCan(board, 'fill') && !board.annualArchived" type="link" :disabled="annualLocked(board)" :loading="!!annualSaving[board.projectId]" @click="saveAnnual(board)">保存年度目标</a-button>
+          <span v-if="board.annualArchived && boardCan(board, 'fill')" class="empty-mat">年度目标已存档，修改请走「数据变更」；可增补节点后再次提交清单审核</span>
           <a-button
             v-if="canSubmitAnnual(board) && boardCan(board, 'fill')"
             type="primary"
@@ -631,7 +634,7 @@ async function removeRow(row: any) {
           <template v-else-if="column.key === 'action'">
             <a-space :size="0">
               <a-button type="link" size="small" @click="loadDetail(record.id)">查看</a-button>
-              <a-button v-if="canEditRow(record)" type="link" size="small" @click="onEdit(record, board)">编辑</a-button>
+              <a-button v-if="canEditRow(record, board)" type="link" size="small" @click="onEdit(record, board)">编辑</a-button>
               <a-dropdown v-if="record.status !== 'DONE'" :trigger="['click']">
                 <a-button type="link" size="small">更多</a-button>
                 <template #overlay>

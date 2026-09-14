@@ -86,6 +86,10 @@ public class BasicDraftController {
     @Autowired
     private SysAuditLogMapper auditLogMapper;
 
+    /** 需求链含「单位分管领导」；花名册暂无该岗位时默认跳过并留痕，置 true 则缺岗禁止提交 */
+    @org.springframework.beans.factory.annotation.Value("${rpm.basic-audit.require-unit-leader:false}")
+    private boolean requireUnitLeader;
+
     @GetMapping("/{id}/basic-draft")
     public R<Map<String, Object>> current(@PathVariable("id") Long id) {
         flowAuditGuard.requireProjectAccess(id);
@@ -143,7 +147,12 @@ public class BasicDraftController {
         }
         Map<String, Object> payload = fromJson(draft.getPayload());
         validatePayload(payload);
-        List<ProjTeamMember> members = membersFromPayload(payload);
+        // 审核路由只认台账里已批准的团队，草稿里拟议的岗位变动不能授予审批权
+        List<ProjTeamMember> members = currentMembers(id);
+        boolean leaderMissing = FlowAuditGuard.findMember(members, "unitLeader") == null;
+        if (leaderMissing && requireUnitLeader) {
+            throw new BusinessException("项目团队未配置「单位分管领导」，请先在项目团队中指定后再提交审批");
+        }
         List<String[]> nodes = effectiveNodes(members);
         SysUser u = flowAuditGuard.currentUser();
         ProjBasicDraft patch = new ProjBasicDraft();
@@ -154,7 +163,12 @@ public class BasicDraftController {
         patch.setSubmittedBy(u.getRealName());
         patch.setSubmittedNo(u.getEmployeeNo());
         patch.setSubmittedAt(LocalDateTime.now());
-        patch.setAuditTrail(appendTrail(draft.getAuditTrail(), "SUBMIT", "提交", u, true, "提交审批"));
+        String trail = appendTrail(draft.getAuditTrail(), "SUBMIT", "提交", u, true, "提交审批");
+        if (leaderMissing) {
+            trail = appendTrail(trail, "UNIT_LEADER", "单位分管领导复核", null, true,
+                    "系统：团队未配置该岗位，按当前口径跳过；如需强制可开启 rpm.basic-audit.require-unit-leader");
+        }
+        patch.setAuditTrail(trail);
         draftMapper.updateById(patch);
         auditLogMapper.write("PROJECT", "SUBMIT", "BASIC_DRAFT", draft.getId(),
                 "提交项目基本信息审批：" + project.getName() + "，首节点 " + nodes.get(0)[1]);
@@ -170,7 +184,7 @@ public class BasicDraftController {
             throw new BusinessException(403, "当前没有待审批的基本信息");
         }
         Map<String, Object> payload = fromJson(draft.getPayload());
-        List<ProjTeamMember> members = membersFromPayload(payload);
+        List<ProjTeamMember> members = currentMembers(id);
         List<String[]> nodes = effectiveNodes(members);
         int idx = indexOf(nodes, draft.getFlowNode());
         if (idx < 0) {
@@ -207,7 +221,7 @@ public class BasicDraftController {
         patch.setFlowNode("DONE");
         patch.setFlowNodeName("已办结");
         draftMapper.updateById(patch);
-        applyToLedger(project, payload, members);
+        applyToLedger(project, payload, membersFromPayload(payload));
         auditLogMapper.write("PROJECT", "APPROVE", "PROJECT", id,
                 "项目基本信息审批通过并同步台账：" + project.getName());
         return R.ok(true);
@@ -226,8 +240,7 @@ public class BasicDraftController {
             if (p == null) {
                 continue;
             }
-            Map<String, Object> payload = fromJson(d.getPayload());
-            List<ProjTeamMember> members = membersFromPayload(payload);
+            List<ProjTeamMember> members = currentMembers(p.getId());
             List<String[]> nodes = effectiveNodes(members);
             int idx = indexOf(nodes, d.getFlowNode());
             if (idx < 0 || !canAudit(p.getId(), nodes.get(idx), members, u)) {
@@ -279,7 +292,7 @@ public class BasicDraftController {
             return v;
         }
         Map<String, Object> payload = fromJson(draft.getPayload());
-        List<ProjTeamMember> members = membersFromPayload(payload);
+        List<ProjTeamMember> members = currentMembers(project.getId());
         List<String[]> nodes = effectiveNodes(members);
         boolean approving = ProjBasicDraft.STATUS_APPROVING.equals(draft.getStatus());
         int idx = indexOf(nodes, draft.getFlowNode());
@@ -524,7 +537,7 @@ public class BasicDraftController {
         Map<String, Object> rec = new LinkedHashMap<>();
         rec.put("node", nodeCode);
         rec.put("nodeName", nodeName);
-        rec.put("actor", u == null ? UserContext.getUsername() : u.getRealName());
+        rec.put("actor", u == null ? "系统" : u.getRealName());
         rec.put("actorNo", u == null ? "" : u.getEmployeeNo());
         rec.put("pass", pass);
         rec.put("opinion", opinion);

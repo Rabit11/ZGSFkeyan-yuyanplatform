@@ -78,7 +78,8 @@ def main():
             break
         node = d.get('flowNode')
         actor = {'PROJECT_LEADER': '100012', 'UNIT_TECH': '100005', 'UNIT_LEADER': '100005', 'HQ': '100004'}.get(node)
-        r = call('POST', f'/api/projects/{PROJECT}/basic-draft/audit', tokens.get(actor), {'pass': True, 'opinion': '矩阵前清理'})
+        # 退回而不是通过：避免把测试草稿写进台账
+        r = call('POST', f'/api/projects/{PROJECT}/basic-draft/audit', tokens.get(actor), {'pass': False, 'opinion': '矩阵前清理：退回测试草稿'})
         print('prep: audit', node, 'by', actor, '->', r.get('code'), r.get('msg', ''))
     # 准备一个可用于销项/删除测试的节点（技术负责人新增），并保证清单不在审核中
     prep = call('POST', '/api/milestones', tokens['100014'], {'projectId': PROJECT, 'name': '角色矩阵测试节点', 'planDate': '2026-11-30', 'budget': 1, 'year': 2026})
@@ -143,9 +144,9 @@ def main():
             check(who, '清单审核（应拒绝 403）', r.get('code') == 403, r.get('msg'))
 
         # ---- 台账直接编辑：管理团队/管理员；项目团队、总师、财务、领导 403
+        # 已立项（平台流程产生）项目：台账由流程归集，任何人都不能直接编辑；表单维护导入项目才允许管理团队维护
         r = call('PUT', f'/api/projects/{PROJECT}', t, {'name': '民机飞控余度架构可靠性与重构技术研究'})
-        exp = ident in LEDGER_EDIT
-        check(who, '台账直接编辑' + ('（管理团队允许）' if exp else '（应拒绝）'), ok(r) == exp, r.get('msg'))
+        check(who, '台账直接编辑已立项项目（应拒绝）', not ok(r), r.get('msg'))
 
         # ---- 预警：能取到列表（内容按工号过滤）
         r = call('GET', '/api/warnings?page=1&size=5', t)

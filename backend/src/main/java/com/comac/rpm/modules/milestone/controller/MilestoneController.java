@@ -105,8 +105,12 @@ public class MilestoneController {
         List<ProjMilestone> list = milestoneMapper.selectList(w);
         ProjInfo project = projInfoMapper.selectById(projectId);
         Map<Long, List<ProjMaterial>> materials = materialsByMilestone(list);
+        boolean finance = financeViewer();
         for (ProjMilestone m : list) {
             decorate(m, project, materials.getOrDefault(m.getId(), List.of()));
+            if (finance) {
+                trimForFinance(m);
+            }
         }
         return R.ok(list);
     }
@@ -150,6 +154,7 @@ public class MilestoneController {
 
         List<Map<String, Object>> todos = new ArrayList<>();
         List<Map<String, Object>> boards = new ArrayList<>();
+        boolean financeBoard = FlowAuditGuard.isFinanceIdentity(FlowAuditGuard.identityOf(currentUser));
         int total = 0;
         int done = 0;
         int yellow = 0;
@@ -160,6 +165,9 @@ public class MilestoneController {
             List<ProjTeamMember> members = membersByProject.getOrDefault(p.getId(), List.of());
             for (ProjMilestone m : ms) {
                 decorate(m, p, materialsMap.getOrDefault(m.getId(), List.of()));
+                if (financeBoard) {
+                    trimForFinance(m);
+                }
             }
 
             List<ProjAnnualPlan> plans = planByProject.getOrDefault(p.getId(), List.of());
@@ -255,6 +263,9 @@ public class MilestoneController {
         ProjMilestone m = requireMilestone(id);
         flowAuditGuard.requireProjectAccess(m.getProjectId());
         decorate(m, projInfoMapper.selectById(m.getProjectId()), listMaterials(id));
+        if (financeViewer()) {
+            trimForFinance(m);
+        }
         return R.ok(m);
     }
 
@@ -262,6 +273,9 @@ public class MilestoneController {
     public R<List<ProjMaterial>> materials(@PathVariable("id") Long id) {
         ProjMilestone m = requireMilestone(id);
         flowAuditGuard.requireProjectAccess(m.getProjectId());
+        if (financeViewer()) {
+            return R.ok(List.of());
+        }
         return R.ok(listMaterials(id));
     }
 
@@ -360,6 +374,14 @@ public class MilestoneController {
             throw new BusinessException("项目不存在");
         }
         flowAuditGuard.requireActors(projectId, "新增里程碑", "techLead", "owner", "contactLogin", "projectPm");
+        Integer planYear = asInt(body.get("year"));
+        LocalDate planDateForYear = asDate(body.get("planDate"));
+        int yearForCheck = planYear != null ? planYear : (planDateForYear != null ? planDateForYear.getYear() : LocalDate.now().getYear());
+        ProjAnnualPlan yearPlan = annualPlanMapper.selectOne(new LambdaQueryWrapper<ProjAnnualPlan>()
+                .eq(ProjAnnualPlan::getProjectId, projectId).eq(ProjAnnualPlan::getYear, yearForCheck).last("LIMIT 1"));
+        if (yearPlan != null && ANNUAL_STATUS_PENDING_AUDIT.equals(nvl(yearPlan.getFinishStatus()))) {
+            throw new BusinessException("年度里程碑清单正在审核中，审核结束前不能新增节点");
+        }
         ProjMilestone m = new ProjMilestone();
         m.setProjectId(projectId);
         m.setName(requireText(body.get("name"), "里程碑名称"));
@@ -395,12 +417,16 @@ public class MilestoneController {
             throw new BusinessException("节点已完成或正在销项审核，不能修改");
         }
         ProjInfo project = projInfoMapper.selectById(existing.getProjectId());
+        boolean baselined = existing.getBaselinePlanDate() != null;
         ProjMilestone patch = new ProjMilestone();
         patch.setId(id);
         List<String> changes = new ArrayList<>();
         if (body.containsKey("name")) {
             String name = requireText(body.get("name"), "里程碑名称");
             if (!name.equals(existing.getName())) {
+                if (baselined) {
+                    throw new BusinessException(400, "该节点已进入审核存档的清单基线，名称修改请通过「数据变更」办理");
+                }
                 patch.setName(name);
                 changes.add("名称 " + existing.getName() + " → " + name);
             }
@@ -408,6 +434,9 @@ public class MilestoneController {
         if (body.containsKey("budget") && body.get("budget") != null) {
             BigDecimal budget = asDecimal(body.get("budget"));
             if (existing.getBudget() == null || budget.compareTo(existing.getBudget()) != 0) {
+                if (baselined) {
+                    throw new BusinessException(400, "该节点已进入审核存档的清单基线，预算修改请通过「数据变更」办理");
+                }
                 patch.setBudget(budget);
                 changes.add("预算 " + existing.getBudget() + " → " + budget);
             }
@@ -460,6 +489,9 @@ public class MilestoneController {
         requireProjectOwner(milestone.getProjectId(), "上传里程碑销项材料");
         if (STATUS_DONE.equals(nvl(milestone.getStatus()))) {
             throw new BusinessException("节点已完成销项，佐证材料已归档，不能再修改");
+        }
+        if (isCloseAuditStatus(milestone.getStatus())) {
+            throw new BusinessException("节点销项正在审核中，佐证材料已锁定；如需补正请先由审核人退回");
         }
         String objectKey = MinioStorageService.extractObjectKey(str(body.get("objectKey")));
         if (objectKey == null) {
@@ -597,11 +629,19 @@ public class MilestoneController {
         ProjAnnualPlan plan = annualPlanMapper.selectOne(new LambdaQueryWrapper<ProjAnnualPlan>()
                 .eq(ProjAnnualPlan::getProjectId, m.getProjectId())
                 .eq(ProjAnnualPlan::getYear, m.getYear()).last("LIMIT 1"));
-        if (plan != null && ANNUAL_STATUS_PENDING_AUDIT.equals(nvl(plan.getFinishStatus()))) {
-            throw new BusinessException("年度里程碑清单正在审核中，审核存档后方可销项");
+        if (plan == null || !ANNUAL_STATUS_DONE.equals(nvl(plan.getFinishStatus()))) {
+            throw new BusinessException("年度里程碑清单尚未审核存档，存档后方可销项");
         }
-        if (!hasCompletionEvidence(listMaterials(id))) {
+        List<ProjMaterial> evidenceList = listMaterials(id);
+        if (!hasCompletionEvidence(evidenceList)) {
             throw new BusinessException("请先上传节点佐证材料，再执行闭环销项");
+        }
+        boolean anyObjectExists = evidenceList.stream()
+                .filter(x -> !"PLAN_TEMPLATE".equalsIgnoreCase(x.getFieldCode()))
+                .map(x -> MinioStorageService.extractObjectKey(x.getFileUrl()))
+                .anyMatch(storageService::exists);
+        if (!anyObjectExists) {
+            throw new BusinessException("佐证材料文件在对象存储中不存在（可能是历史数据缺件），请重新上传后再销项");
         }
         boolean overdue = m.getPlanDate() != null && m.getPlanDate().isBefore(LocalDate.now());
         String lagReason = body == null ? null : str(body.get("lagReason"));
@@ -716,6 +756,21 @@ public class MilestoneController {
                         .in(ProjMaterial::getBizId, ids)
                         .orderByDesc(ProjMaterial::getUploadedAt))
                 .stream().collect(Collectors.groupingBy(ProjMaterial::getBizId));
+    }
+
+    private boolean financeViewer() {
+        SysUser u = flowAuditGuard.currentUserOrNull();
+        return u != null && FlowAuditGuard.isFinanceIdentity(FlowAuditGuard.identityOf(u));
+    }
+
+    /** 财务团队仅关联查看节点预算：不下发佐证材料、滞后原因、审核意见等技术信息 */
+    private static void trimForFinance(ProjMilestone m) {
+        m.setMaterials(List.of());
+        m.setLagReason(null);
+        m.setLagMeasure(null);
+        m.setAuditOpinion(null);
+        m.setAuditBy(null);
+        m.setCanDelete(false);
     }
 
     private void decorate(ProjMilestone m, ProjInfo p, List<ProjMaterial> materials) {
