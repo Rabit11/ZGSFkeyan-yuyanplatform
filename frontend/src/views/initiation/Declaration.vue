@@ -846,7 +846,7 @@ async function revoke(row: any) {
           </a-select>
           <a-button type="primary" @click="load"><SearchOutlined />查询</a-button>
         </div>
-        <a-button type="primary" :disabled="!can.fill" @click="onCreate"><PlusOutlined />新建申报</a-button>
+        <a-button type="primary" @click="onCreate"><PlusOutlined />新建申报</a-button>
       </div>
 
       <a-table
