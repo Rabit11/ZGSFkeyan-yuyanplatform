@@ -315,9 +315,9 @@ async def main():
         await f.step('基本信息保存草稿并提交审批', draft_submit)
         await f.shot('f1-draft-submitted')
 
-        for acc, label in [('100012', '项目负责人'), ('100005', '单位科技管理部'), ('100004', '总部科研项目处')]:
-            if acc != '100012':
-                await f.login(acc)
+        # 负责人本人提交，首节点自动通过，后续两级审批
+        for acc, label in [('100005', '单位科技管理部'), ('100004', '总部科研项目处')]:
+            await f.login(acc)
             await f.goto('#/implement/basic?projectId=2')
 
             async def audit_basic():

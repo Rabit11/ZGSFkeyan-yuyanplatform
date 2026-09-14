@@ -222,8 +222,9 @@ async function submitDraft() {
   submitting.value = true
   try {
     await projectApi.submitBasicDraft(projectId.value)
-    message.success('已提交审批，审批通过后同步至项目台账')
     await loadDraft()
+    const nextNode = draft.value.flowNodeName ? '，当前待「' + draft.value.flowNodeName + '」办理' : ''
+    message.success('已提交审批' + nextNode + '；全部通过后同步至项目台账')
   } catch (e: any) {
     if (!isSilentAuthError(e)) message.error(e.message || '提交审批失败')
   } finally {

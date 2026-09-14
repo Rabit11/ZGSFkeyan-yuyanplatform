@@ -57,9 +57,14 @@ hq = login('100004')         # 总部科研项目主管 何雨桐
 admin = login('100001')
 
 # 开跑前清理：若基本信息草稿仍在审批中（上一轮残留），由当前节点办理人退回，保证脚本可重复执行
+TEST_MARKS = ('【审批补充', '【RV02', '【UI走查', '角色矩阵')
 for _ in range(4):
     d0 = call('GET', '/api/projects/2/basic-draft', owner).get('data') or {}
     if d0.get('status') != 'APPROVING':
+        break
+    goal0 = str((d0.get('payload') or {}).get('goal') or '')
+    if not any(mk in goal0 for mk in TEST_MARKS):
+        print('注意：项目 2 有一份真实用户提交的基本信息正在审批中，脚本不予处理，本轮基本信息用例将跳过')
         break
     actor = {'PROJECT_LEADER': owner, 'UNIT_TECH': unit, 'UNIT_LEADER': unit, 'HQ': hq}.get(d0.get('flowNode'))
     call('POST', '/api/projects/2/basic-draft/audit', actor, {'pass': False, 'opinion': '验证前清理：退回残留草稿'})
@@ -180,14 +185,14 @@ p_before = call('GET', '/api/projects/2', owner)['data']
 check('草稿保存后台账未变', ('审批补充' + STAMP) not in (p_before.get('goal') or ''), p_before.get('goal'))
 r = call('POST', '/api/projects/2/basic-draft/submit', owner)
 d = call('GET', '/api/projects/2/basic-draft', owner)['data']
-check('提交后 APPROVING，首节点 PROJECT_LEADER', r.get('code') == 0 and d['status'] == 'APPROVING' and d['flowNode'] == 'PROJECT_LEADER', (r, d.get('flowNode')))
+check('负责人提交 → 首节点自动通过，停在 UNIT_TECH', r.get('code') == 0 and d['status'] == 'APPROVING' and d['flowNode'] == 'UNIT_TECH', (r, d.get('flowNode')))
+check('审批记录含“提交人即项目负责人，本节点自动通过”', any('自动通过' in str(x.get('opinion')) for x in (d.get('auditTrail') or [])), d.get('auditTrail'))
 r = call('PUT', '/api/projects/2/basic-draft', owner, payload)
 check('审批中草稿不能修改', r.get('code') == 403, r)
-r = call('POST', '/api/projects/2/basic-draft/audit', unit, {'pass': True})
-check('单位负责人不能越过项目负责人节点', r.get('code') == 403, r)
 r = call('POST', '/api/projects/2/basic-draft/audit', owner, {'pass': True, 'opinion': '信息属实'})
+check('负责人不能再审自己（首节点已自动通过）', r.get('code') == 403, r)
 d = call('GET', '/api/projects/2/basic-draft', owner)['data']
-check('项目负责人审核 → UNIT_TECH', r.get('code') == 0 and d['flowNode'] == 'UNIT_TECH', (r, d.get('flowNode')))
+check('当前节点为 UNIT_TECH', d['flowNode'] == 'UNIT_TECH', d.get('flowNode'))
 pend = call('GET', '/api/projects/basic-drafts/pending', unit)['data']
 check('单位负责人待办中出现该草稿', any(x['projectId'] == 2 for x in pend), pend)
 r = call('POST', '/api/projects/2/basic-draft/audit', unit, {'pass': True})
@@ -205,7 +210,6 @@ hack['teamMembers'] = [{'roleName': '项目负责人', 'userName': '林晚晴', 
 r = call('PUT', '/api/projects/2/basic-draft', owner, hack)
 check('F05 保存把自己指为单位科技部长的草稿', r.get('code') == 0, r)
 r = call('POST', '/api/projects/2/basic-draft/submit', owner)
-r = call('POST', '/api/projects/2/basic-draft/audit', owner, {'pass': True, 'opinion': '自审1'})
 d = call('GET', '/api/projects/2/basic-draft', owner)['data']
 r = call('POST', '/api/projects/2/basic-draft/audit', owner, {'pass': True, 'opinion': '自审2'})
 check('F05 负责人不能自审单位科技管理部节点', r.get('code') == 403 and d.get('flowNode') == 'UNIT_TECH', (r, d.get('flowNode')))
@@ -219,16 +223,16 @@ payload2 = dict(payload)
 payload2['goal'] = (p.get('goal') or '').split('【审批补充')[0] + '【RV02-' + STAMP + '】'
 r = call('PUT', '/api/projects/2/basic-draft', owner, payload2)
 r = call('POST', '/api/projects/2/basic-draft/submit', owner)
-r = call('POST', '/api/projects/2/basic-draft/audit', owner, {'pass': False, 'opinion': '请补充目标'})
+r = call('POST', '/api/projects/2/basic-draft/audit', unit, {'pass': False, 'opinion': '请补充目标'})
 d = call('GET', '/api/projects/2/basic-draft', owner)['data']
-check('RV-02 项目负责人退回 → REJECTED 且可再编辑', r.get('code') == 0 and d['status'] == 'REJECTED' and d['canEdit'], (r, d.get('status')))
+check('RV-02 单位科技管理部退回 → REJECTED 且可再编辑', r.get('code') == 0 and d['status'] == 'REJECTED' and d['canEdit'], (r, d.get('status')))
 r = call('PUT', '/api/projects/2/basic-draft', owner, payload2)
 r2 = call('POST', '/api/projects/2/basic-draft/submit', owner)
 d = call('GET', '/api/projects/2/basic-draft', owner)['data']
-check('RV-02 退回后修改重提 → 重新进入负责人节点', r.get('code') == 0 and r2.get('code') == 0 and d['status'] == 'APPROVING' and d['flowNode'] == 'PROJECT_LEADER', (r, r2, d.get('flowNode')))
+check('RV-02 退回后修改重提 → 重新进入审批（负责人节点自动通过后停在 UNIT_TECH）', r.get('code') == 0 and r2.get('code') == 0 and d['status'] == 'APPROVING' and d['flowNode'] == 'UNIT_TECH', (r, r2, d.get('flowNode')))
 trail = d.get('auditTrail') or []
 check('RV-02 审批记录含退回与二次提交', any(x.get('pass') is False for x in trail) and sum(1 for x in trail if x.get('node') == 'SUBMIT') >= 2, trail)
-for actor in (owner, unit, hq):
+for actor in (unit, hq):
     call('POST', '/api/projects/2/basic-draft/audit', actor, {'pass': True, 'opinion': 'RV02 通过'})
 d = call('GET', '/api/projects/2/basic-draft', owner)['data']
 check('RV-02 重提后四级走完 APPROVED', d['status'] == 'APPROVED', d.get('status'))

@@ -158,12 +158,21 @@ public class BasicDraftController {
         ProjBasicDraft patch = new ProjBasicDraft();
         patch.setId(draft.getId());
         patch.setStatus(ProjBasicDraft.STATUS_APPROVING);
-        patch.setFlowNode(nodes.get(0)[0]);
-        patch.setFlowNodeName(nodes.get(0)[1]);
+        String trail = appendTrail(draft.getAuditTrail(), "SUBMIT", "提交", u, true, "提交审批");
+        // 需求链“项目团队填写 → 项目负责人审核”：提交人本人就是项目负责人时，首节点自动通过并留痕，任务直接流转到单位科技管理部
+        int startIdx = 0;
+        ProjTeamMember ownerMember = FlowAuditGuard.findMember(members, "owner");
+        boolean submitterIsOwner = ownerMember != null ? FlowAuditGuard.samePerson(u, ownerMember)
+                : FlowAuditGuard.matchesOwnerLabel(project.getOwnerName(), u);
+        if (submitterIsOwner && "PROJECT_LEADER".equals(nodes.get(0)[0]) && nodes.size() > 1) {
+            trail = appendTrail(trail, "PROJECT_LEADER", "项目负责人审核", u, true, "提交人即项目负责人，本节点自动通过");
+            startIdx = 1;
+        }
+        patch.setFlowNode(nodes.get(startIdx)[0]);
+        patch.setFlowNodeName(nodes.get(startIdx)[1]);
         patch.setSubmittedBy(u.getRealName());
         patch.setSubmittedNo(u.getEmployeeNo());
         patch.setSubmittedAt(LocalDateTime.now());
-        String trail = appendTrail(draft.getAuditTrail(), "SUBMIT", "提交", u, true, "提交审批");
         if (leaderMissing) {
             trail = appendTrail(trail, "UNIT_LEADER", "单位分管领导复核", null, true,
                     "系统：团队未配置该岗位，按当前口径跳过；如需强制可开启 rpm.basic-audit.require-unit-leader");
@@ -171,7 +180,8 @@ public class BasicDraftController {
         patch.setAuditTrail(trail);
         draftMapper.updateById(patch);
         auditLogMapper.write("PROJECT", "SUBMIT", "BASIC_DRAFT", draft.getId(),
-                "提交项目基本信息审批：" + project.getName() + "，首节点 " + nodes.get(0)[1]);
+                "提交项目基本信息审批：" + project.getName() + "，当前节点 " + nodes.get(startIdx)[1]
+                        + (startIdx > 0 ? "（提交人即项目负责人，首节点自动通过）" : ""));
         return R.ok(true);
     }
 

@@ -76,6 +76,10 @@ def main():
         d = call('GET', f'/api/projects/{PROJECT}/basic-draft', owner_t).get('data') or {}
         if d.get('status') != 'APPROVING':
             break
+        goal0 = str((d.get('payload') or {}).get('goal') or '')
+        if not any(mk in goal0 for mk in ('【审批补充', '【RV02', '【UI走查', '角色矩阵')):
+            print('注意：项目 2 有真实用户提交的基本信息正在审批中，脚本不予处理')
+            break
         node = d.get('flowNode')
         actor = {'PROJECT_LEADER': '100012', 'UNIT_TECH': '100005', 'UNIT_LEADER': '100005', 'HQ': '100004'}.get(node)
         # 退回而不是通过：避免把测试草稿写进台账
