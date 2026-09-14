@@ -623,6 +623,13 @@ CREATE TABLE `achv_transform` (
   `plan_date`     DATE        DEFAULT NULL,
   `actual_date`   DATE        DEFAULT NULL,
   `status`        VARCHAR(32) NOT NULL DEFAULT 'NOT_STARTED' COMMENT 'NOT_STARTED未启动/NEGOTIATING洽谈中/SIGNED已签协议/DONE已完成',
+  `legacy_record` TINYINT NOT NULL DEFAULT 0 COMMENT '历史来源待核对，不表示新流程已备案',
+  `reported_status` VARCHAR(32) DEFAULT NULL COMMENT '本轮填报的转化进度，备案后同步至status',
+  `reported_actual_date` DATE DEFAULT NULL COMMENT '本轮填报的实际转化时间，备案后同步至actual_date',
+  `workflow_status` VARCHAR(32) NOT NULL DEFAULT 'DRAFT' COMMENT 'DRAFT/UNIT_REVIEW/RETURNED/HQ_RECORD/RECORDED',
+  `revision`      BIGINT      NOT NULL DEFAULT 0 COMMENT '乐观锁版本',
+  `evidence_json` LONGTEXT    DEFAULT NULL COMMENT '成效佐证材料JSON',
+  `history_json`  LONGTEXT    DEFAULT NULL COMMENT '提交、审核、备案及快照履历JSON',
   `color_status`  VARCHAR(16) NOT NULL DEFAULT 'BLUE',
   `intro_detail`  VARCHAR(2000) DEFAULT NULL,
   `duty_org`      VARCHAR(128) DEFAULT NULL,
@@ -783,6 +790,10 @@ INSERT INTO `sys_dict` (`dict_type`, `dict_code`, `dict_name`, `sort`) VALUES
  ('TRANSFORM_FORM', 'JOINT', '联合实施', 5),
  ('TRANSFORM_FORM', 'INVEST', '作价投资', 6),
  ('TRANSFORM_FORM', 'OTHER', '其他', 7),
+ ('TRANSFORM_STATUS', 'NOT_STARTED', '未启动', 1),
+ ('TRANSFORM_STATUS', 'NEGOTIATING', '洽谈中', 2),
+ ('TRANSFORM_STATUS', 'SIGNED', '已签协议', 3),
+ ('TRANSFORM_STATUS', 'DONE', '已完成', 4),
  ('PARTNER_TYPE', 'LEAD', '牵头', 1),
  ('PARTNER_TYPE', 'PARTNER', '参研', 2),
  ('PARTNER_TYPE', 'OUTSOURCE', '科研外协', 3),
@@ -803,6 +814,11 @@ INSERT INTO `sys_dict` (`dict_type`, `dict_code`, `dict_name`, `sort`) VALUES
  ('ACCEPT_LEVEL', 'COMPANY', '公司级验收', 2),
  ('ACCEPT_LEVEL', 'NATIONAL', '国家级验收', 3),
  ('ACCEPT_LEVEL', 'LOCAL', '属地主管部门验收', 4);
+
+UPDATE `sys_dict` SET `parent_code` = 'MODEL'
+WHERE `dict_type` = 'TRANSFORM_FORM' AND `dict_code` IN ('INSTALLED', 'UNINSTALLED');
+UPDATE `sys_dict` SET `parent_code` = 'MARKET'
+WHERE `dict_type` = 'TRANSFORM_FORM' AND `dict_code` IN ('TRANSFER', 'LICENSE', 'JOINT', 'INVEST', 'OTHER');
 
 -- 项目渠道
 INSERT INTO `proj_channel` (`channel_code`, `channel_name`, `level_code`, `channel_dept`, `channel_office`, `inner_dept`, `inner_office`, `flow_nodes`, `declare_material`, `filing_material`) VALUES

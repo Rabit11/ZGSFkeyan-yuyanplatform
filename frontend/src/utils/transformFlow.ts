@@ -1,6 +1,7 @@
 /** 成果转化阶段 · 流转图（居中弹窗） */
 
 import { personnelDisplay } from '@/constants/personnel'
+import { confirmedStatus } from '@/utils/transformPackage'
 
 export type TfNodeStatus = 'done' | 'current' | 'pending' | 'return' | 'closed'
 export type TfNodeType = 'ACTION' | 'AUDIT' | 'SYSTEM' | 'CLOSED'
@@ -110,7 +111,7 @@ export function who(node?: TfFlowNode | null) {
 }
 
 function stOf(order: number, current: number, done: boolean, dualCurrent?: number[]): TfNodeStatus {
-  if (done) return order === 7 ? 'closed' : 'done'
+  if (done) return order === 6 ? 'closed' : 'done'
   if (dualCurrent?.includes(order) && order === current) return 'current'
   if (dualCurrent?.includes(order) && current <= 2 && order <= 2) return 'current'
   if (order < current) return 'done'
@@ -118,25 +119,16 @@ function stOf(order: number, current: number, done: boolean, dualCurrent?: numbe
   return 'pending'
 }
 
-function inferCurrent(transforms: any[], projectStatus?: string): { current: number; done: boolean } {
+function inferCurrent(transforms: any[]): { current: number; done: boolean } {
   const pkgs = transforms || []
-  const pst = String(projectStatus || '')
-  if (pst === 'FINISHED' && pkgs.length && pkgs.every((t: any) => t.status === 'DONE')) {
-    return { current: 99, done: true }
-  }
-  if (!pkgs.length || pkgs.every((t: any) => t.status === 'NOT_STARTED' || !t.status)) {
-    return { current: 1, done: false }
-  }
-  if (pkgs.some((t: any) => t.status === 'DONE') && pkgs.every((t: any) => t.status === 'DONE')) {
-    return { current: 6, done: false }
-  }
-  if (pkgs.some((t: any) => t.status === 'SIGNED' || t.status === 'DONE')) {
-    return { current: 5, done: false }
-  }
-  if (pkgs.some((t: any) => t.status === 'NEGOTIATING')) {
-    return { current: 3, done: false }
-  }
-  return { current: 2, done: false }
+  if (!pkgs.length) return { current: 1, done: false }
+  // 审核节点取持久化流程状态，业务进度不能代替审批结果。
+  if (pkgs.some(t => !t.workflowStatus || ['DRAFT', 'RETURNED'].includes(t.workflowStatus))) return { current: 2, done: false }
+  if (pkgs.some(t => t.workflowStatus === 'UNIT_REVIEW')) return { current: 3, done: false }
+  if (pkgs.some(t => t.workflowStatus === 'HQ_RECORD')) return { current: 4, done: false }
+  const complete = pkgs.every(t => confirmedStatus(t) === 'DONE' && t.workflowStatus === 'RECORDED')
+  if (complete) return { current: 99, done: true }
+  return { current: 6, done: false }
 }
 
 export function buildTransformFlowOptsFromOverview(overview: any): TfFlowOpts {
@@ -147,11 +139,10 @@ export function buildTransformFlowOptsFromOverview(overview: any): TfFlowOpts {
 
   const owner = pickMember(members, ['PROJECT_LEADER', '项目负责人'], TRANSFORM_ROLE_EMPLOYEE.owner, '项目负责人')
   const unitHead = pickMember(members, ['UNIT_MINISTER', '单位科技部长', '二级单位'], TRANSFORM_ROLE_EMPLOYEE.unitHead, '二级单位管理团队')
-  const unitClerk = pickMember(members, ['UNIT_SUPERVISOR', '单位科技主管', '二级总师'], TRANSFORM_ROLE_EMPLOYEE.unitClerk, '二级单位管理团队')
   const hq = pickMember(members, ['HQ_DIRECTOR', '总部处室处长', '总部管理'], TRANSFORM_ROLE_EMPLOYEE.hq, '总部管理团队')
   const sys = fromRoster(TRANSFORM_ROLE_EMPLOYEE.system, '系统')
 
-  const { current, done } = inferCurrent(transforms, p.status)
+  const { current, done } = inferCurrent(transforms)
   const dual = current <= 2 ? [1, 2] : undefined
 
   const nodes: TfFlowNode[] = [
@@ -215,20 +206,10 @@ export function buildTransformFlowOptsFromOverview(overview: any): TfFlowOpts {
       statusLabel: statusLabelOf(stOf(6, current, done)),
       handlers: [owner],
     },
-    {
-      nodeCode: 'TF_ARCHIVE',
-      title: '项目完成归档',
-      lane: '二级单位 / 总部',
-      desc: '全部成果包转化并上传佐证后，可发起二级单位核验与总部归档确认；后评价不是前置条件。',
-      nodeType: done ? 'CLOSED' : 'SYSTEM',
-      status: stOf(7, current, done),
-      statusLabel: statusLabelOf(stOf(7, current, done)),
-      handlers: [unitClerk],
-    },
   ]
 
   const now = nodes.filter((n) => n.status === 'current')
-  const pkgDone = transforms.filter((t: any) => t.status === 'DONE').length
+  const pkgDone = transforms.filter((t: any) => confirmedStatus(t) === 'DONE').length
   const delivered = deliverables.filter((d: any) => d.status === 'DELIVERED').length
   const bound = deliverables.filter((d: any) => d.achievementNo).length
 
@@ -236,16 +217,16 @@ export function buildTransformFlowOptsFromOverview(overview: any): TfFlowOpts {
     id: t.id,
     achievementNo: t.achievementNo,
     name: t.name,
-    status: t.status,
-    statusLabel: PKG_STATUS[t.status] || t.status || '未启动',
+    status: confirmedStatus(t),
+    statusLabel: PKG_STATUS[confirmedStatus(t) || ''] || confirmedStatus(t) || '未启动',
     transformWay: WAY_TEXT[t.transformWay] || t.transformWay,
     itemCount: t.itemCount || (t.deliverables || []).length,
   }))
 
   const currentFlow = done
-    ? '已办结 · 可归档'
+    ? '成果转化已完成'
     : now.length
-      ? `${now[now.length - 1].lane} · ${unitClerk.name || unitClerk.label}`
+      ? `${now[now.length - 1].lane} · ${who(now[now.length - 1])}`
       : '待发起'
 
   const latestProcess = done
@@ -264,7 +245,7 @@ export function buildTransformFlowOptsFromOverview(overview: any): TfFlowOpts {
     latestProcess,
     doneCount: pkgDone,
     totalCount: Math.max(transforms.length, 1),
-    nextAction: done ? '去归档' : current <= 2 ? '去提交成果包' : '去办理',
+    nextAction: done ? '查看成果包' : current <= 2 ? '去提交成果包' : '去办理',
     nextActionPath: '/transform',
     nodes,
     packages,
@@ -272,10 +253,10 @@ export function buildTransformFlowOptsFromOverview(overview: any): TfFlowOpts {
       delivered,
       bound,
       packages: transforms.length,
-      materials: transforms.reduce((n: number, t: any) => n + Number(t.itemCount || 0), 0),
+      materials: transforms.reduce((n: number, t: any) => { try { return n + (JSON.parse(t.evidenceJson || '[]').length || 0) } catch { return n } }, 0),
     },
     processHint:
-      '仅已交付交付物可纳入成果包。审核通过后数据双向同步台账与看板；全部成果包完成并上传佐证后可发起项目完成归档。',
+      '仅已交付交付物可纳入成果包。备案后数据双向同步台账与看板；由负责人在左侧“成果转化”功能页更新进展及上传佐证，流程节点仅供查看。',
   }
 }
 

@@ -68,4 +68,29 @@ public class AchvTransform {
     @TableField(exist = false)
     private String projectName;
 
+    /** 审核流程与业务转化状态独立。历史记录迁移为草稿，不能推断已审核。 */
+    private String workflowStatus;
+    /** 填报进度；status 保留供既有台账/看板聚合的已确认进度。 */
+    private String reportedStatus;
+    private LocalDate reportedActualDate;
+    /** 历史来源待核对；不表示通过本模块的新审核流程。 */
+    private Boolean legacyRecord;
+    @TableField(exist = false)
+    private String confirmedStatus;
+    @TableField(exist = false)
+    private LocalDate confirmedActualDate;
+    /** 历史成果包所属项目已不存在，仅管理员可只读核对。 */
+    @TableField(exist = false)
+    private Boolean orphanedProject;
+    private Long revision;
+    private String evidenceJson;
+    private String historyJson;
+
+    @TableField(exist = false)
+    private java.util.List<Long> deliverableIds;
+    @TableField(exist = false)
+    private java.util.List<com.comac.rpm.modules.deliverable.entity.ProjDeliverable> deliverables;
+    @TableField(exist = false)
+    private java.util.List<String> allowedActions;
+
 }

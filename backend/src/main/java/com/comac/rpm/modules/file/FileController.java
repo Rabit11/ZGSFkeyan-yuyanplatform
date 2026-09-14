@@ -26,10 +26,12 @@ public class FileController {
 
     private final MinioStorageService storageService;
     private final FlowAuditGuard flowAuditGuard;
+    private final TransformFileService transformFiles;
 
-    public FileController(MinioStorageService storageService, FlowAuditGuard flowAuditGuard) {
+    public FileController(MinioStorageService storageService, FlowAuditGuard flowAuditGuard, TransformFileService transformFiles) {
         this.storageService = storageService;
         this.flowAuditGuard = flowAuditGuard;
+        this.transformFiles = transformFiles;
     }
 
     /**
@@ -45,6 +47,8 @@ public class FileController {
 
     @GetMapping("/download")
     public void download(@RequestParam("objectKey") String objectKey, HttpServletResponse response) throws Exception {
+        if (objectKey.startsWith("supplement-private/")) throw new com.comac.rpm.common.BusinessException(403, "请从导入项目补录授权入口下载");
+        if (objectKey.startsWith("transform-private/")) throw new com.comac.rpm.common.BusinessException(403, "请从成果转化授权入口下载");
         String name = objectKey.contains("/") ? objectKey.substring(objectKey.lastIndexOf('/') + 1) : objectKey;
         response.setHeader("Content-Disposition",
                 "attachment; filename*=UTF-8''" + URLEncoder.encode(name, StandardCharsets.UTF_8));
@@ -56,8 +60,25 @@ public class FileController {
 
     @DeleteMapping
     public R<Boolean> delete(@RequestParam("objectKey") String objectKey) {
+        if (objectKey.startsWith("supplement-private/")) throw new com.comac.rpm.common.BusinessException(403, "补录历史附件不可删除");
+        if (objectKey.startsWith("transform-private/")) throw new com.comac.rpm.common.BusinessException(403, "成果转化历史附件不可删除");
         flowAuditGuard.requireAdmin("删除存储附件");
         storageService.delete(objectKey);
         return R.ok(true);
+    }
+
+    @PostMapping("/transform/upload")
+    public R<Map<String,Object>> uploadTransform(@RequestParam("projectId") Long projectId,@RequestParam("file") MultipartFile file) {
+        return R.ok(transformFiles.upload(projectId,file));
+    }
+
+    @GetMapping("/transform/download")
+    public void downloadTransform(@RequestParam("fileId") String fileId,HttpServletResponse response) throws Exception {
+        Map<String,Object> file=transformFiles.file(fileId);
+        response.setHeader("X-Content-Type-Options","nosniff");
+        response.setHeader("Cache-Control","private, no-store");
+        response.setHeader("Content-Disposition","attachment; filename*=UTF-8''"+URLEncoder.encode(String.valueOf(file.get("file_name")),StandardCharsets.UTF_8));
+        response.setContentType("application/octet-stream");
+        try(InputStream in=storageService.download(String.valueOf(file.get("object_key")))) {StreamUtils.copy(in,response.getOutputStream());}
     }
 }

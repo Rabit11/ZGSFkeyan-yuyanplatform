@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { CheckCircleFilled, RightOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
-import { declarationApi, dictApi, projectApi, acceptanceApi, fileApi } from '@/api/modules'
+import { declarationApi, dictApi, projectApi, acceptanceApi } from '@/api/modules'
 import { fmtAmount, fmtDate } from '@/utils/format'
 import StatusTag from '@/components/StatusTag.vue'
 import { LEVEL_TEXT, PROJECT_STATUS_TEXT } from '@/api/types'
@@ -35,6 +35,7 @@ import {
 import { READONLY_FLOW_NOTICE } from '@/utils/flowEntryPolicy'
 import { useDictStore } from '@/stores/dict'
 import ProjectVizPanel from '@/components/ProjectVizPanel.vue'
+import SupplementSummary from '@/components/SupplementSummary.vue'
 
 const dictStore = useDictStore()
 const route = useRoute()
@@ -50,136 +51,10 @@ const filingFlowOpen = ref(false)
 const implementFlowOpen = ref(false)
 const acceptFlowOpen = ref(false)
 const transformFlowOpen = ref(false)
-const maintenanceAuditOpen = ref(false)
-const maintenanceAuditKind = ref<'unit' | 'hq'>('unit')
-const maintenanceAuditForm = reactive({ pass: true, opinion: '' })
 
 const p = computed(() => data.value.project || {})
 const channel = computed(() => data.value.channel || {})
 const isMaintenanceProject = computed(() => p.value.dataSource === 'FORM_MAINT')
-const maintenanceMaterials = computed(() => data.value.maintenanceMaterials || [])
-const maintenanceFlow = computed(() => data.value.maintenanceFlow || {})
-const currentChannel = computed(() => {
-  if (channel.value?.id || channel.value?.channelName) return channel.value
-  const channels = dictStore.channels || []
-  return (
-    channels.find((c: any) => p.value.channelId && c.id === p.value.channelId) ||
-    channels.find((c: any) => p.value.channelName && c.channelName === p.value.channelName) ||
-    {}
-  )
-})
-const maintenanceStatusColor = computed(() => {
-  const map: Record<string, string> = {
-    MAINT_UNIT_REVIEW: 'processing',
-    MAINT_HQ_REVIEW: 'blue',
-    MAINT_DONE: 'success',
-    MAINT_REJECTED: 'error',
-  }
-  return map[maintenanceFlow.value.status] || 'warning'
-})
-
-const ACCEPTANCE_MATERIALS: Record<string, string[]> = {
-  UNIT: ['验收申请书', '技术总结报告', '经费决算表', '交付物清单'],
-  COMPANY: ['公司级验收申请表', '评审专家意见', '验收结论'],
-  NATIONAL: ['国家级验收申请', '主管机关批复', '综合绩效评价材料'],
-  LOCAL: ['属地验收申请', '科委验收意见', '综合绩效评价材料'],
-}
-
-function acceptMaterialNames(levelCode?: string) {
-  if (levelCode === 'NATIONAL') {
-    return [...ACCEPTANCE_MATERIALS.UNIT, ...ACCEPTANCE_MATERIALS.COMPANY, ...ACCEPTANCE_MATERIALS.NATIONAL]
-  }
-  if (levelCode === 'LOCAL') {
-    return [...ACCEPTANCE_MATERIALS.UNIT, ...ACCEPTANCE_MATERIALS.LOCAL]
-  }
-  if (levelCode === 'COMPANY') {
-    return [...ACCEPTANCE_MATERIALS.UNIT, ...ACCEPTANCE_MATERIALS.COMPANY]
-  }
-  return ACCEPTANCE_MATERIALS.UNIT
-}
-
-function uniq(list: string[]) {
-  return Array.from(new Set(list.map((s) => String(s || '').trim()).filter(Boolean)))
-}
-
-function materialCode(stageKey: string, index: number) {
-  return `MAINTAIN_MATERIAL_${stageKey}_${String(index + 1).padStart(2, '0')}`
-}
-
-const maintenanceRows = computed(() => {
-  const rows: any[] = []
-  const usedCodes = new Set<string>()
-  const records = Array.isArray(maintenanceMaterials.value) ? maintenanceMaterials.value : []
-  const pushRows = (stageKey: string, stageName: string, names: string[], required = true) => {
-    uniq(names).forEach((name, index) => {
-      const code = materialCode(stageKey, index)
-      const rec =
-        records.find((m: any) => m.fieldCode === code) ||
-        records.find((m: any) => m.fieldCode === 'MAINTAIN_MATERIAL' && m.fieldName === name)
-      if (rec?.fieldCode) usedCodes.add(rec.fieldCode)
-      rows.push({
-        key: code,
-        code,
-        stageKey,
-        stageName,
-        materialName: name,
-        required,
-        uploaded: !!(rec?.fileName || rec?.fileUrl || rec?.uploadedAt),
-        fileName: rec?.fileName,
-        fileUrl: rec?.fileUrl,
-        uploadedBy: rec?.uploadedBy,
-        uploadedAt: rec?.uploadedAt,
-      })
-    })
-  }
-
-  pushRows('DECLARE', '项目申报', channelRequiredMaterials(currentChannel.value, 'declare'))
-  pushRows('FILING', '立项备案', channelRequiredMaterials(currentChannel.value, 'filing'))
-  pushRows('IMPLEMENT', '实施阶段', [
-    '年度计划与实施方案',
-    '里程碑及交付物清单',
-    '节点完成佐证材料',
-    '阶段检查/评估结论材料',
-    '经费预算及核销凭证材料',
-    '项目变更申请及支撑材料',
-  ])
-  pushRows('ACCEPT', '项目验收', acceptMaterialNames(p.value.levelCode))
-  pushRows('TRANSFORM', '成果转化', ['成果包材料', '成果转化申请/证明材料'])
-
-  records
-    .filter((m: any) => m.fieldCode && !usedCodes.has(m.fieldCode))
-    .forEach((m: any) => {
-      if (!String(m.fieldCode).startsWith('MAINTAIN_MATERIAL')) return
-      rows.push({
-        key: m.fieldCode || m.id,
-        code: m.fieldCode,
-        stageKey: 'OTHER',
-        stageName: '其他',
-        materialName: m.fieldName || '维护材料',
-        required: false,
-        uploaded: !!(m.fileName || m.fileUrl || m.uploadedAt),
-        fileName: m.fileName,
-        fileUrl: m.fileUrl,
-        uploadedBy: m.uploadedBy,
-        uploadedAt: m.uploadedAt,
-      })
-    })
-  return rows
-})
-
-const maintenanceRequiredComplete = computed(() =>
-  maintenanceRows.value.filter((row) => row.required).every((row) => row.uploaded),
-)
-const maintenanceMissingCount = computed(() =>
-  maintenanceRows.value.filter((row) => row.required && !row.uploaded).length,
-)
-const canSubmitMaintenance = computed(() => !!maintenanceFlow.value.canSubmit && maintenanceRequiredComplete.value)
-const maintenanceHandlers = computed(() => maintenanceFlow.value.handlers || {})
-
-function maintenanceHandlerText(key: 'owner' | 'unitReviewer' | 'hqReviewer', fallback: string) {
-  return maintenanceHandlers.value?.[key] || fallback
-}
-
 function livePosts() {
   const decl = data.value.declaration || {}
   return mergePosts(
@@ -530,74 +405,6 @@ const peColumns = [
   { title: '等级', dataIndex: 'grade', width: 90 },
 ]
 
-const maintenanceColumns = [
-  { title: '环节', dataIndex: 'stageName', width: 140 },
-  { title: '需维护信息 / 材料', dataIndex: 'materialName' },
-  { title: '要求', dataIndex: 'required', width: 80 },
-  { title: '上传状态', dataIndex: 'uploaded', width: 110 },
-  { title: '已上传文件', dataIndex: 'fileName', width: 260 },
-  { title: '上传人 / 时间', dataIndex: 'uploadedAt', width: 180 },
-  { title: '操作', dataIndex: 'action', width: 120, fixed: 'right' as const },
-]
-
-async function uploadMaintenanceMaterial(options: any, row: any) {
-  try {
-    const form = new FormData()
-    form.append('file', options.file)
-    const uploaded = (await fileApi.upload(form, 'form-maint-maintenance')).data as any
-    await projectApi.saveMaintenanceMaterial(id, {
-      fieldCode: row.code,
-      fieldName: row.materialName || '维护材料',
-      fileName: uploaded.fileName || options.file?.name,
-      fileUrl: uploaded.fileUrl,
-      fileSize: uploaded.fileSize || options.file?.size,
-    })
-    message.success(`已上传：${row.materialName}`)
-    options.onSuccess?.(uploaded)
-    await load()
-  } catch (e: any) {
-    options.onError?.(e)
-    message.error(e.message || '维护材料上传失败')
-  }
-}
-
-async function submitMaintenance() {
-  try {
-    await projectApi.submitMaintenance(id)
-    message.success('已提交本单位科技管理部负责人审核')
-    await load()
-  } catch (e: any) {
-    message.error(e.message || '提交失败')
-  }
-}
-
-function openMaintenanceAudit(kind: 'unit' | 'hq') {
-  maintenanceAuditKind.value = kind
-  maintenanceAuditForm.pass = true
-  maintenanceAuditForm.opinion = ''
-  maintenanceAuditOpen.value = true
-}
-
-async function confirmMaintenanceAudit() {
-  const payload = {
-    pass: maintenanceAuditForm.pass,
-    opinion: maintenanceAuditForm.opinion,
-  }
-  try {
-    if (maintenanceAuditKind.value === 'unit') {
-      await projectApi.unitAuditMaintenance(id, payload)
-      message.success(payload.pass ? '单位审核通过，已提交总部主管审核' : '已退回项目负责人维护')
-    } else {
-      await projectApi.hqAuditMaintenance(id, payload)
-      message.success(payload.pass ? '总部主管审核通过，维护完成' : '已退回项目负责人维护')
-    }
-    maintenanceAuditOpen.value = false
-    await load()
-  } catch (e: any) {
-    message.error(e.message || '审核失败')
-  }
-}
-
 function openNode(node: LifecycleNode) {
   // 未办理节点也允许只读查看流转/详情（不强制先办完上一阶段）
   if (node.nodeCode === 'DECLARE') {
@@ -648,8 +455,8 @@ function nameInitial(name?: string) {
               <a-tag v-if="PROJECT_STATUS_TEXT[p.status]" color="success">
                 {{ PROJECT_STATUS_TEXT[p.status] }}
               </a-tag>
-              <a-tag v-if="isMaintenanceProject" :color="maintenanceStatusColor">
-                {{ maintenanceFlow.statusText || '待维护' }}
+              <a-tag v-if="isMaintenanceProject" color="blue">
+                表单维护导入
               </a-tag>
               <a-tag v-if="stage" :color="stage.color">{{ stage.text }}</a-tag>
               <StatusTag v-if="p.warnColor" :color="p.warnColor" />
@@ -757,139 +564,13 @@ function nameInitial(name?: string) {
       <!-- C. Tab 内容 -->
       <a-card :body-style="{ padding: '12px 20px 20px' }" class="detail-card">
         <a-tabs v-model:activeKey="active">
+          <a-tab-pane v-if="isMaintenanceProject" key="supplement-approved" tab="补录归集">
+            <SupplementSummary :project-id="id" />
+          </a-tab-pane>
           <a-tab-pane key="overview" tab="概览">
-            <div v-if="isMaintenanceProject" class="maintenance-panel">
-              <div class="maintenance-head">
-                <div>
-                  <div class="maintenance-title">待维护项目材料</div>
-                  <div class="maintenance-desc">
-                    项目负责人上传维护相关材料并提交，本单位科技管理部负责人审核后，流转至总部主管终审。
-                  </div>
-                </div>
-                <a-space wrap>
-                  <a-tag :color="maintenanceStatusColor">{{ maintenanceFlow.statusText || '待维护' }}</a-tag>
-                  <a-button
-                    type="primary"
-                    :disabled="!canSubmitMaintenance"
-                    @click="submitMaintenance"
-                  >
-                    提交单位审核
-                  </a-button>
-                  <a-button
-                    v-if="maintenanceFlow.canUnitAudit"
-                    type="primary"
-                    ghost
-                    @click="openMaintenanceAudit('unit')"
-                  >
-                    单位审核
-                  </a-button>
-                  <a-button
-                    v-if="maintenanceFlow.canHqAudit"
-                    type="primary"
-                    ghost
-                    @click="openMaintenanceAudit('hq')"
-                  >
-                    总部审核
-                  </a-button>
-                </a-space>
-              </div>
-              <a-row :gutter="16" class="maintenance-flow">
-                <a-col :span="8">
-                  <div class="maintenance-step done">
-                    <div class="maintenance-step-title">1 项目负责人上传 / 提交</div>
-                    <div class="maintenance-step-person">
-                      办理人：{{ maintenanceHandlerText('owner', p.ownerName || '待指定') }}
-                    </div>
-                  </div>
-                </a-col>
-                <a-col :span="8">
-                  <div
-                    class="maintenance-step"
-                    :class="{ active: maintenanceFlow.status === 'MAINT_UNIT_REVIEW', done: ['MAINT_HQ_REVIEW', 'MAINT_DONE'].includes(maintenanceFlow.status) }"
-                  >
-                    <div class="maintenance-step-title">2 本单位科技管理部负责人审核</div>
-                    <div class="maintenance-step-person">
-                      审核人：{{ maintenanceHandlerText('unitReviewer', '待指定') }}
-                    </div>
-                  </div>
-                </a-col>
-                <a-col :span="8">
-                  <div
-                    class="maintenance-step"
-                    :class="{ active: maintenanceFlow.status === 'MAINT_HQ_REVIEW', done: maintenanceFlow.status === 'MAINT_DONE' }"
-                  >
-                    <div class="maintenance-step-title">3 总部主管审核</div>
-                    <div class="maintenance-step-person">
-                      审核人：{{ maintenanceHandlerText('hqReviewer', '待指定') }}
-                    </div>
-                  </div>
-                </a-col>
-              </a-row>
-              <div class="maintenance-files">
-                <div class="sub-title-row">
-                  <div class="sub-title">维护材料清单</div>
-                  <span class="missing-tip" v-if="maintenanceMissingCount">
-                    还有 {{ maintenanceMissingCount }} 项必传材料未上传
-                  </span>
-                </div>
-                <a-table
-                  size="small"
-                  row-key="key"
-                  :pagination="false"
-                  :data-source="maintenanceRows"
-                  :columns="maintenanceColumns"
-                  :scroll="{ x: 960 }"
-                >
-                  <template #bodyCell="{ column, record }">
-                    <template v-if="column.dataIndex === 'required'">
-                      <a-tag :color="record.required ? 'red' : 'default'">
-                        {{ record.required ? '必传' : '选传' }}
-                      </a-tag>
-                    </template>
-                    <template v-else-if="column.dataIndex === 'uploaded'">
-                      <a-tag :color="record.uploaded ? 'green' : 'orange'">
-                        {{ record.uploaded ? '已上传' : '待上传' }}
-                      </a-tag>
-                    </template>
-                    <template v-else-if="column.dataIndex === 'fileName'">
-                      <a v-if="record.fileUrl" :href="record.fileUrl" target="_blank" rel="noopener">
-                        {{ record.fileName || '查看附件' }}
-                      </a>
-                      <span v-else-if="record.fileName">{{ record.fileName }}</span>
-                      <span v-else class="empty-text">—</span>
-                    </template>
-                    <template v-else-if="column.dataIndex === 'uploadedAt'">
-                      <div v-if="record.uploadedAt">
-                        <div>{{ record.uploadedBy || '—' }}</div>
-                        <div class="time-text">{{ fmtDate(record.uploadedAt) }}</div>
-                      </div>
-                      <span v-else class="empty-text">—</span>
-                    </template>
-                    <template v-else-if="column.dataIndex === 'action'">
-                      <a-upload
-                        :show-upload-list="false"
-                        :disabled="!maintenanceFlow.canUpload"
-                        :custom-request="(options) => uploadMaintenanceMaterial(options, record)"
-                      >
-                        <a-button size="small" :disabled="!maintenanceFlow.canUpload">
-                          {{ record.uploaded ? '重新上传' : '上传' }}
-                        </a-button>
-                      </a-upload>
-                    </template>
-                  </template>
-                </a-table>
-              </div>
-              <div class="maintenance-tracks" v-if="(maintenanceFlow.tracks || []).length">
-                <div class="sub-title">办理轨迹</div>
-                <a-timeline>
-                  <a-timeline-item v-for="(track, idx) in maintenanceFlow.tracks" :key="idx">
-                    <div class="track-action">{{ track.action }}</div>
-                    <div class="track-meta">{{ track.time ? fmtDate(track.time) : '—' }} · {{ track.actor || '—' }}</div>
-                    <div v-if="track.opinion" class="track-opinion">意见：{{ track.opinion }}</div>
-                  </a-timeline-item>
-                </a-timeline>
-              </div>
-            </div>
+            <a-alert v-if="isMaintenanceProject" type="info" show-icon class="maintenance-panel"
+              message="表单维护导入项目"
+              description="信息填写与材料上传请从左侧「导入项目补录」进入。此处展示项目归集信息，流程节点仅供查看。" />
             <a-row :gutter="16">
               <a-col :span="14">
                 <div class="panel">
@@ -1185,29 +866,6 @@ function nameInitial(name?: string) {
           </a-tab-pane>
         </a-tabs>
       </template>
-    </a-modal>
-
-    <a-modal
-      v-model:open="maintenanceAuditOpen"
-      :title="maintenanceAuditKind === 'unit' ? '本单位科技管理部负责人审核' : '总部主管审核'"
-      centered
-      @ok="confirmMaintenanceAudit"
-    >
-      <a-form layout="vertical">
-        <a-form-item label="审核结论">
-          <a-radio-group v-model:value="maintenanceAuditForm.pass">
-            <a-radio :value="true">通过</a-radio>
-            <a-radio :value="false">退回</a-radio>
-          </a-radio-group>
-        </a-form-item>
-        <a-form-item label="审核意见">
-          <a-textarea
-            v-model:value="maintenanceAuditForm.opinion"
-            :rows="4"
-            placeholder="请输入审核意见，将写入办理轨迹"
-          />
-        </a-form-item>
-      </a-form>
     </a-modal>
 
     <DeclareFlowDialog v-model:open="flowOpen" :opts="declareFlowOpts" />

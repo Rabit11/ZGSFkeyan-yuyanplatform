@@ -2,9 +2,13 @@
 import { onMounted, ref } from 'vue'
 import { useDictStore } from '@/stores/dict'
 import { LEVEL_TEXT } from '@/api/types'
+import ChannelMaterialConfig from '@/views/supplement/ChannelMaterialConfig.vue'
 
 const dictStore = useDictStore()
 const loading = ref(false)
+const configOpen = ref(false)
+const configChannel = ref({ channelCode: '', channelName: '' })
+function configure(record: any) { configChannel.value = record; configOpen.value = true }
 
 async function load() {
   loading.value = true
@@ -41,9 +45,11 @@ onMounted(load)
             { title: '全周期流程节点', dataIndex: 'flowNodes' },
             { title: '申报材料', dataIndex: 'declareMaterial', width: 180 },
             { title: '立项材料', dataIndex: 'filingMaterial', width: 180 },
+            { title: '补录材料', key: 'materials', width: 120, fixed: 'right' },
           ]">
           <template #bodyCell="{ column, record }">
-            <template v-if="column.dataIndex === 'levelCode'">
+            <template v-if="column.key === 'materials'"><a-button type="link" @click="configure(record)">材料配置</a-button></template>
+            <template v-else-if="column.dataIndex === 'levelCode'">
               <a-tag :color="record.levelCode === 'NATIONAL' ? 'red' : record.levelCode === 'LOCAL' ? 'orange' : 'blue'">
                 {{ LEVEL_TEXT[record.levelCode] }}
               </a-tag>
@@ -55,5 +61,6 @@ onMounted(load)
         </a-table>
       </a-spin>
     </a-card>
+    <ChannelMaterialConfig v-model:open="configOpen" :channel-code="configChannel.channelCode" :channel-name="configChannel.channelName" />
   </div>
 </template>
