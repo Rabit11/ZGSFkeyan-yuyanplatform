@@ -1,4 +1,4 @@
-﻿import dayjs from 'dayjs'
+import dayjs from 'dayjs'
 import type {
   AchvTransform,
   ColorStatus,
@@ -48,6 +48,10 @@ export const dicts: SysDict[] = [
   { dictType: 'DELIVERABLE_TYPE', dictCode: 'PROTOTYPE', dictName: '原理样机' },
   { dictType: 'DELIVERABLE_TYPE', dictCode: 'EQUIPMENT', dictName: '设备' },
   { dictType: 'DELIVERABLE_TYPE', dictCode: 'TECH_PACKAGE', dictName: '成套技术成果' },
+  { dictType: 'TRANSFORM_STATUS', dictCode: 'NOT_STARTED', dictName: '未启动' },
+  { dictType: 'TRANSFORM_STATUS', dictCode: 'NEGOTIATING', dictName: '洽谈中' },
+  { dictType: 'TRANSFORM_STATUS', dictCode: 'SIGNED', dictName: '已签协议' },
+  { dictType: 'TRANSFORM_STATUS', dictCode: 'DONE', dictName: '已完成' },
   { dictType: 'TRANSFORM_WAY', dictCode: 'MODEL', dictName: '向型号转化' },
   { dictType: 'TRANSFORM_WAY', dictCode: 'MARKET', dictName: '向市场转化' },
   { dictType: 'TRANSFORM_FORM', dictCode: 'INSTALLED', dictName: '装机' },

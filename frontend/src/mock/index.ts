@@ -1,3 +1,4 @@
+import { mockTransform } from './transform'
 import type { Res } from '@/api/types'
 import type { RequestOptions } from '@/api/request'
 import { calcColor, mergeColor } from '@/utils/color'
@@ -120,6 +121,8 @@ export async function mockRequest<T = any>(opts: RequestOptions): Promise<Res<T>
   const segs = pathname.split('/').filter(Boolean)
   const query = { ...(opts.params || {}), ...(opts.data || {}) }
   const body = opts.data || {}
+  const transformResult = mockTransform(method, pathname, query, body)
+  if (transformResult) return transformResult as Res<T>
 
   const m = (mth: string, pattern: string, fn: (p: Record<string, string>) => any) => {
     if (method !== mth) return null
@@ -970,61 +973,6 @@ export async function mockRequest<T = any>(opts: RequestOptions): Promise<Res<T>
       if (x.grade === 'FAIL' && !DB.blacklist.some((b: any) => b.partnerName === x.partnerName)) {
         DB.blacklist.push({ id: DB.blacklist.length + 1, partnerName: x.partnerName, reason: `评价得分 ${score} 分，不合格，纳入黑名单`, inDate: x.evalDate })
       }
-      return ok(true)
-    }),
-  )
-
-  /* ------------------------------ 成果转化 ------------------------------ */
-  routes.push(
-    m('GET', '/transforms', () => {
-      const kw = String(query.keyword || '').trim()
-      let list = DB.transforms.map((x) => {
-        const p = DB.projects.find((y) => y.id === x.projectId)
-        return { ...x, projectName: p?.name, projectNo: x.projectNo || p?.projectNo }
-      })
-      if (query.projectId) list = list.filter((x) => x.projectId === Number(query.projectId))
-      if (query.status) list = list.filter((x) => x.status === query.status)
-      if (query.transformWay) list = list.filter((x) => x.transformWay === query.transformWay)
-      if (query.dutyOrg) list = list.filter((x) => x.dutyOrg === query.dutyOrg)
-      if (kw) {
-        list = list.filter(
-          (x) =>
-            String(x.name || '').includes(kw) ||
-            String(x.achievementNo || '').includes(kw) ||
-            String(x.projectNo || '').includes(kw) ||
-            String(x.projectName || '').includes(kw),
-        )
-      }
-      return ok(paginate(list, query))
-    }),
-    m('GET', '/transforms/:id', (p) => ok(DB.transforms.find((x) => x.id === Number(p.id)))),
-    m('POST', '/transforms', () => {
-      const id = Math.max(...DB.transforms.map((x) => x.id)) + 1
-      DB.transforms.unshift({ id, achievementNo: `CG${new Date().getFullYear()}${3000 + id}`, status: 'NOT_STARTED', itemCount: 0, colorStatus: calcColor(body.planDate, false), ...body })
-      return ok(id)
-    }),
-    m('PUT', '/transforms/:id', (p) => {
-      const x = DB.transforms.find((y) => y.id === Number(p.id))
-      if (x) Object.assign(x, body, { colorStatus: calcColor(body.planDate ?? x.planDate, (body.status ?? x.status) === 'DONE') })
-      return ok(true)
-    }),
-    m('DELETE', '/transforms/:id', (p) => {
-      const i = DB.transforms.findIndex((y) => y.id === Number(p.id))
-      if (i >= 0) DB.transforms.splice(i, 1)
-      return ok(true)
-    }),
-    m('POST', '/transforms/:id/bind', (p) => {
-      const t = DB.transforms.find((y) => y.id === Number(p.id))
-      if (!t) return fail('成果包不存在')
-      const ids: number[] = body.deliverableIds || []
-      const illegal = ids.filter((i) => (DB.deliverables.find((x) => x.id === i)?.status || '') !== 'DELIVERED')
-      if (illegal.length) return fail('仅状态为「已交付」的交付物可纳入成果转化包')
-      ids.forEach((i) => {
-        const dv = DB.deliverables.find((x) => x.id === i)
-        if (dv) dv.achievementNo = t.achievementNo
-      })
-      t.itemCount = ids.length
-      t.deliverables = DB.deliverables.filter((x) => x.achievementNo === t.achievementNo)
       return ok(true)
     }),
   )
