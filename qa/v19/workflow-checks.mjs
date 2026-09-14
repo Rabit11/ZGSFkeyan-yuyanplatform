@@ -4,7 +4,7 @@
  * framework classes are reused from the repository's packaged runtime artifact.
  * Persistence is substituted with single-project, in-memory mapper fixtures;
  * SQL filtering, Spring Security/AOP, transactions and real storage are NOT tested.
- * Usage: node workflow-checks.mjs --output path.json [--java-home path] [--m2 path]
+ * Usage: node workflow-checks.mjs --output path.json [--java-home path] [--runtime path]
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -30,7 +30,7 @@ fs.mkdirSync(classes)
 const quote = value => '"' + value.replaceAll('\\', '/').replaceAll('"', '\\"') + '"'
 const result = { suite: 'workflow', layer: '真实Java控制器+FlowAuditGuard/内存mapper（不含SQL与Spring鉴权）', cases: [] }
 try {
-  const runtime = path.resolve(here, '../../../V7/project/runtime/backend/rpm-backend.jar')
+  const runtime = path.resolve(option('--runtime', path.join(here, '../../backend/target/rpm-backend-1.0.0.jar')))
   if (!fs.existsSync(runtime)) throw new Error('Missing repository packaged runtime: ' + runtime)
   const extraction = spawnSync(bin('jar'), ['xf', runtime], { cwd: temp, encoding: 'utf8', timeout: 60000, windowsHide: true })
   if (extraction.error || extraction.status !== 0) throw new Error('Cannot extract runtime dependencies: ' + (extraction.error?.message || extraction.stderr))
