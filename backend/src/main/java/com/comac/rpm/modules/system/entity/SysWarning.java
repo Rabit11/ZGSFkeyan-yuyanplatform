@@ -30,6 +30,10 @@ public class SysWarning implements Serializable {
     private String content;
     /** 接收角色，逗号分隔 */
     private String receiver;
+    /** 接收人工号，逗号分隔 */
+    private String receiverNos;
     private Integer isRead;
+    /** 已读人工号，逗号分隔 */
+    private String readNos;
     private LocalDateTime createdAt;
 }

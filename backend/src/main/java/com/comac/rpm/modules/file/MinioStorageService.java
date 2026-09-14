@@ -75,6 +75,42 @@ public class MinioStorageService {
         return data;
     }
 
+    /** 对象是否真实存在于 MinIO（用于佐证材料登记校验，防止伪造 fileUrl）。 */
+    public boolean exists(String objectKey) {
+        if (objectKey == null || objectKey.isBlank()) {
+            return false;
+        }
+        try {
+            minioClient.statObject(StatObjectArgs.builder()
+                    .bucket(props.getBucket()).object(objectKey).build());
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** 从下载链接或对象键中解析对象键。 */
+    public static String extractObjectKey(String objectKeyOrUrl) {
+        if (objectKeyOrUrl == null || objectKeyOrUrl.isBlank()) {
+            return null;
+        }
+        String v = objectKeyOrUrl.trim();
+        int idx = v.indexOf("objectKey=");
+        if (idx >= 0) {
+            v = v.substring(idx + "objectKey=".length());
+            int amp = v.indexOf('&');
+            if (amp >= 0) {
+                v = v.substring(0, amp);
+            }
+            try {
+                v = java.net.URLDecoder.decode(v, java.nio.charset.StandardCharsets.UTF_8);
+            } catch (Exception ignored) {
+                // keep raw
+            }
+        }
+        return v.isBlank() ? null : v;
+    }
+
     public InputStream download(String objectKey) {
         try {
             minioClient.statObject(StatObjectArgs.builder()

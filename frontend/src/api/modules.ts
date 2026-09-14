@@ -21,7 +21,17 @@ export const projectApi = {
   create: (data: any) => http.post('/api/projects', data),
   update: (id: number, data: any) => http.put(`/api/projects/${id}`, data),
   updateFromFormMaint: (id: number, data: any) => http.put(`/api/projects/form-maint/${id}`, data),
+  /** 年度目标：只接受 { year, annualGoal, planContent, dueDate? } */
   saveAnnualPlan: (id: number, data: any) => http.put(`/api/projects/${id}/annual-plan`, data),
+  /** 年度清单提交审核（PENDING_AUDIT），要求该年度至少 1 个里程碑 */
+  submitAnnualPlan: (id: number, data: { year: number }) => http.post(`/api/projects/${id}/annual-plan/submit`, data),
+  /** 基本信息审批草稿 */
+  basicDraft: (id: number) => http.get(`/api/projects/${id}/basic-draft`),
+  saveBasicDraft: (id: number, data: any) => http.put(`/api/projects/${id}/basic-draft`, data),
+  submitBasicDraft: (id: number) => http.post(`/api/projects/${id}/basic-draft/submit`),
+  auditBasicDraft: (id: number, data: { pass: boolean; opinion?: string }) =>
+    http.post(`/api/projects/${id}/basic-draft/audit`, data),
+  pendingBasicDrafts: () => http.get('/api/projects/basic-drafts/pending'),
   saveMaintenanceMaterial: (id: number, data: any) => http.post(`/api/projects/${id}/maintenance/materials`, data),
   submitMaintenance: (id: number) => http.post(`/api/projects/${id}/maintenance/submit`),
   unitAuditMaintenance: (id: number, data: any) => http.post(`/api/projects/${id}/maintenance/unit-audit`, data),
@@ -42,9 +52,13 @@ export const milestoneApi = {
   create: (data: any) => http.post('/api/milestones', data),
   update: (id: number, data: any) => http.put(`/api/milestones/${id}`, data),
   remove: (id: number) => http.del(`/api/milestones/${id}`),
-  close: (id: number, data?: any) => http.post(`/api/milestones/${id}/close`, data),
-  auditClose: (id: number, data?: any) => http.post(`/api/milestones/${id}/close-audit`, data),
-  delay: (id: number) => http.post(`/api/milestones/${id}/delay`),
+  /** 提交销项：逾期节点 lagReason 必填；成功后状态为 CLOSE_DEPT_AUDIT */
+  close: (id: number, data?: { lagReason?: string; lagMeasure?: string }) => http.post(`/api/milestones/${id}/close`, data || {}),
+  auditClose: (id: number, data?: { pass: boolean; remark?: string }) => http.post(`/api/milestones/${id}/close-audit`, data),
+  /** 延期申请：后端生成 MILESTONE_DELAY 变更草稿，返回 { changeId, changeNo } */
+  delay: (id: number, data: { newPlanDate: string; reason: string }) => http.post(`/api/milestones/${id}/delay`, data),
+  /** 登记滞后原因（仅项目负责人） */
+  lag: (id: number, data: { lagReason: string; lagMeasure: string }) => http.post(`/api/milestones/${id}/lag`, data),
   materials: (id: number) => http.get(`/api/milestones/${id}/materials`),
   saveMaterial: (id: number, data: any) => http.post(`/api/milestones/${id}/materials`, data),
   auditAnnualPlan: (projectId: number, data: any) =>

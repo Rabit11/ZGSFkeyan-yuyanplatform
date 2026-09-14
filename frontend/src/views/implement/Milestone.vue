@@ -2,7 +2,8 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
-import { fileApi, milestoneApi, projectApi } from '@/api/modules'
+import dayjs, { type Dayjs } from 'dayjs'
+import { milestoneApi, projectApi } from '@/api/modules'
 import type { MilestoneProjectBoard, MilestoneTodo } from '@/api/types'
 import { isSilentAuthError } from '@/api/request'
 import StatusTag from '@/components/StatusTag.vue'
@@ -12,7 +13,8 @@ import { dueText, fmtAmount, fmtDate } from '@/utils/format'
 import { implClosePath, implCompilePath } from '@/utils/implementFlow'
 import { downloadAuthenticatedFile } from '@/utils/authFile'
 import WorkDutyBar from '@/components/WorkDutyBar.vue'
-import { useWorkDuty } from '@/composables/useWorkDuty'
+import { resolveWorkDuty } from '@/utils/workDuty'
+import { WORK_ACTION_LABEL, type WorkAction } from '@/constants/workDuty'
 import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
@@ -20,35 +22,76 @@ const user = useUserStore()
 
 const annualYear = ref(new Date().getFullYear())
 const loading = ref(false)
-const summary = ref<any>({ todo: 0, compile: 0, close: 0, yellow: 0, red: 0, total: 0, done: 0 })
+const summary = ref<any>({ todo: 0, compile: 0, close: 0, audit: 0, closeAudit: 0, yellow: 0, red: 0, total: 0, done: 0 })
 const todos = ref<MilestoneTodo[]>([])
 const boards = ref<MilestoneProjectBoard[]>([])
 const todoTab = ref<'ALL' | 'COMPILE' | 'COMPILE_AUDIT' | 'CLOSE_AUDIT' | 'CLOSE'>('ALL')
 const keyword = ref('')
 const focusProjectId = ref<number>()
 
+/* 新增 / 编辑节点 */
 const open = ref(false)
+const saving = ref(false)
 const editing = ref<any>(null)
 const form = reactive<any>({ projectId: undefined, name: '', year: annualYear.value, planDate: '', budget: 0 })
+const editLocked = computed(() => !!editing.value?.dateLocked)
+
+/* 延期申请 */
+const delayOpen = ref(false)
+const delaySaving = ref(false)
+const delayRow = ref<any>(null)
+const delayForm = reactive({ newPlanDate: '', reason: '' })
+
+/* 滞后原因 / 逾期销项 */
+const lagOpen = ref(false)
+const lagSaving = ref(false)
+const lagMode = ref<'lag' | 'close'>('lag')
+const lagRow = ref<any>(null)
+const lagForm = reactive({ lagReason: '', lagMeasure: '' })
+
 const flowOpen = ref(false)
 const overviewData = ref<any>(null)
 const detailOpen = ref(false)
 const detail = ref<any>(null)
-const annualSaving = ref(false)
-const dutyProject = computed(() => {
-  const b = boards.value[0]
-  return b ? { ownerName: b.ownerName, id: b.projectId } : null
-})
-const { can, guard } = useWorkDuty('milestone_compile', dutyProject)
+const annualSaving = ref<Record<number, boolean>>({})
+const annualSubmitting = ref<Record<number, boolean>>({})
+
+/* ------------------------------ 按项目分别判定办理权限 ------------------------------ */
+function boardProject(board?: MilestoneProjectBoard | null) {
+  return board ? { id: board.projectId, ownerName: board.ownerName } : null
+}
+function boardDuty(board?: MilestoneProjectBoard | null) {
+  return resolveWorkDuty('milestone_compile', boardProject(board), {
+    employeeNo: user.employeeNo,
+    realName: user.realName,
+    identityCode: user.identityCode,
+    roles: user.roles,
+  })
+}
+function boardCan(board: MilestoneProjectBoard | null | undefined, action: WorkAction) {
+  return boardDuty(board)[action].can
+}
+function guardBoard(board: MilestoneProjectBoard | null | undefined, action: WorkAction) {
+  const cell = boardDuty(board)[action]
+  if (cell.can) return true
+  message.warning(cell.reason || `当前账号不能${WORK_ACTION_LABEL[action]}`)
+  return false
+}
+function boardOf(projectId?: number) {
+  return boards.value.find((b) => b.projectId === Number(projectId))
+}
+/** 顶部定责条仅展示第一个项目，各项目操作时按各自 board 判定 */
+const dutyProject = computed(() => boardProject(visibleBoards.value[0] || boards.value[0]))
 
 const columns = [
-  { title: '#', key: 'idx', width: 56 },
-  { title: '里程碑', dataIndex: 'name', width: 240 },
-  { title: '计划完成', dataIndex: 'planDate', width: 150 },
-  { title: '状态', dataIndex: 'colorStatus', width: 130 },
-  { title: '完成/剩余', key: 'remain', width: 140 },
-  { title: '佐证/交付物', dataIndex: 'evidence', width: 260 },
-  { title: '操作', key: 'action', width: 220, fixed: 'right' as const },
+  { title: '#', key: 'idx', width: 48 },
+  { title: '里程碑', dataIndex: 'name', width: 210 },
+  { title: '计划完成', dataIndex: 'planDate', width: 110 },
+  { title: '预算（万元）', dataIndex: 'budget', width: 116, align: 'right' as const },
+  { title: '状态', dataIndex: 'colorStatus', width: 112 },
+  { title: '完成/剩余', key: 'remain', width: 150 },
+  { title: '佐证/交付物', dataIndex: 'evidence', width: 190 },
+  { title: '操作', key: 'action', width: 164, fixed: 'right' as const },
 ]
 
 const filteredTodos = computed(() => {
@@ -64,23 +107,25 @@ const visibleBoards = computed(() => {
   return hit.length ? hit : boards.value
 })
 
+/* ------------------------------ 项目负责人判定（销项类操作） ------------------------------ */
 function digitsOnly(value?: string | number) {
   return String(value || '').replace(/\D/g, '')
 }
-
+function nameOnly(value?: string | number) {
+  return String(value || '').replace(/[（(].*$/, '').trim()
+}
 function currentUserMatchesText(value?: string | number) {
-  const text = String(value || '').trim()
   const myNo = digitsOnly(user.employeeNo)
   const myName = String(user.realName || '').trim()
-  return (!!myNo && digitsOnly(text).includes(myNo)) || (!!myName && text.includes(myName))
+  const no = digitsOnly(value)
+  const name = nameOnly(value)
+  return (!!myNo && !!no && no === myNo) || (!!myName && !!name && name === myName)
 }
-
 function isProjectOwnerMember(m: any) {
   const code = String(m?.roleCode || '')
   const role = String(m?.roleName || '')
-  return code === 'PROJECT_LEADER' || role === '项目负责人' || role.includes('项目负责人')
+  return code === 'PROJECT_LEADER' || role === '项目负责人'
 }
-
 function currentUserOwns(target?: any) {
   if (!target) return false
   const members = target.teamMembers || target.members || []
@@ -89,16 +134,52 @@ function currentUserOwns(target?: any) {
   }
   return currentUserMatchesText(target.ownerName || target.owner)
 }
-
 function canCloseRow(row: any, board?: any) {
+  if (user.isAdmin) return false
   return currentUserOwns(row) || currentUserOwns(board)
 }
-
-function requireRowOwner(row: any) {
-  if (canCloseRow(row)) return true
-  message.warning('仅项目团队负责人可上传销项材料')
+function requireRowOwner(row: any, board?: any) {
+  if (canCloseRow(row, board)) return true
+  message.warning('仅项目负责人可办理该节点的销项类操作')
   return false
 }
+
+/* ------------------------------ 行状态辅助 ------------------------------ */
+function inAudit(row: any) {
+  return row?.status === 'CLOSE_DEPT_AUDIT' || row?.status === 'CLOSE_UNIT_AUDIT'
+}
+function isOverdue(row: any) {
+  if (!row || row.status === 'DONE') return false
+  if (row.colorStatus === 'RED' || row.status === 'OVERDUE') return true
+  return !!row.planDate && dayjs(row.planDate).isBefore(dayjs(), 'day')
+}
+function evidenceMaterials(row: any) {
+  return ((row?.materials || []) as any[]).filter((m) => m.fieldCode !== 'PLAN_TEMPLATE')
+}
+/** 编辑：仅填报人、节点未完成/未在审核、且未进入清单基线（进基线后名称/预算走数据变更，日期走延期申请） */
+function canEditRow(row: any, board?: any) {
+  if (row.status === 'DONE' || inAudit(row) || row.baselinePlanDate) return false
+  return board ? boardCan(board, 'fill') : true
+}
+function remainText(row: any) {
+  if (row.status === 'DONE') return `完成 ${fmtDate(row.actualDate)}`
+  if (row.status === 'CLOSE_DEPT_AUDIT') return '待项目承担部门负责人审核'
+  if (row.status === 'CLOSE_UNIT_AUDIT') return '待单位科研管理部门负责人审核'
+  return dueText(row.planDate)
+}
+/** 仅清单审核中锁定；存档后允许增补节点，增补的节点未进基线，需再次提交清单审核 */
+function annualLocked(board: MilestoneProjectBoard) {
+  return board.annualStatus === 'PENDING_AUDIT' || !!board.annualAuditPending
+}
+function hasUnbaselined(board: MilestoneProjectBoard) {
+  return (board.milestones || []).some((m: any) => !m.baselinePlanDate && m.status !== 'DONE')
+}
+function canSubmitAnnual(board: MilestoneProjectBoard) {
+  if (annualLocked(board) || !(board.milestones || []).length) return false
+  const archived = board.annualStatus === 'DONE' || !!board.annualArchived
+  return !archived || hasUnbaselined(board)
+}
+
 async function loadBoard() {
   loading.value = true
   try {
@@ -107,6 +188,8 @@ async function loadBoard() {
     summary.value = data.summary || {}
     todos.value = data.todos || []
     boards.value = data.projects || []
+  } catch (e: any) {
+    if (!isSilentAuthError(e)) message.error(e.message || '加载里程碑看板失败')
   } finally {
     loading.value = false
   }
@@ -161,22 +244,23 @@ async function openMaterial(material: any) {
   }
 }
 
-function onCreate(projectId?: number) {
+/* ------------------------------ 新增 / 编辑 ------------------------------ */
+function onCreate(board: MilestoneProjectBoard) {
+  if (!guardBoard(board, 'fill')) return
+  if (annualLocked(board)) {
+    message.warning(board.annualStatus === 'DONE' ? '本年度清单已存档，增补节点请走【项目变更】' : '清单审核中，暂不能新增节点')
+    return
+  }
   editing.value = null
-  Object.assign(form, {
-    projectId: projectId || boards.value[0]?.projectId,
-    name: '',
-    year: annualYear.value,
-    planDate: '',
-    budget: 0,
-  })
+  Object.assign(form, { projectId: board.projectId, name: '', year: annualYear.value, planDate: '', budget: 0 })
   open.value = true
 }
 
-function onEdit(row: any) {
+function onEdit(row: any, board: MilestoneProjectBoard) {
+  if (!guardBoard(board, 'fill')) return
   editing.value = row
   Object.assign(form, {
-    projectId: row.projectId,
+    projectId: row.projectId || board.projectId,
     name: row.name,
     year: row.year,
     planDate: row.planDate,
@@ -186,20 +270,44 @@ function onEdit(row: any) {
 }
 
 async function onSave() {
-  if (!form.projectId || !form.name) {
+  if (!form.projectId || !String(form.name || '').trim()) {
     message.warning('请填写项目与里程碑名称')
     return
   }
-  if (editing.value) await milestoneApi.update(editing.value.id, form)
-  else await milestoneApi.create(form)
-  message.success('保存成功')
-  open.value = false
-  loadBoard()
+  saving.value = true
+  try {
+    if (editing.value) {
+      // 契约：PUT 只接受 { name, budget, year, planDate? }；dateLocked 时不传 planDate
+      const payload: any = { name: String(form.name).trim(), budget: form.budget ?? 0, year: form.year }
+      if (!editLocked.value && form.planDate) payload.planDate = form.planDate
+      await milestoneApi.update(editing.value.id, payload)
+    } else {
+      if (!form.planDate) {
+        message.warning('请填写计划完成时间')
+        return
+      }
+      await milestoneApi.create({
+        projectId: form.projectId,
+        name: String(form.name).trim(),
+        year: form.year,
+        planDate: form.planDate,
+        budget: form.budget ?? 0,
+      })
+    }
+    message.success('保存成功')
+    open.value = false
+    loadBoard()
+  } catch (e: any) {
+    if (!isSilentAuthError(e)) message.error(e.message || '保存失败')
+  } finally {
+    saving.value = false
+  }
 }
 
+/* ------------------------------ 年度目标 / 清单提交 ------------------------------ */
 async function saveAnnual(board: MilestoneProjectBoard) {
-  if (!guard('fill')) return
-  annualSaving.value = true
+  if (!guardBoard(board, 'fill')) return
+  annualSaving.value = { ...annualSaving.value, [board.projectId]: true }
   try {
     await projectApi.saveAnnualPlan(board.projectId, {
       year: annualYear.value,
@@ -208,55 +316,151 @@ async function saveAnnual(board: MilestoneProjectBoard) {
     })
     message.success('年度目标已保存')
     loadBoard()
-  } finally {
-    annualSaving.value = false
-  }
-}
-
-async function uploadEvidence(options: any, row: any) {
-  if (!requireRowOwner(row)) return
-  try {
-    const data = new FormData()
-    data.append('file', options.file)
-    const uploaded = (await fileApi.upload(data, 'evidence')).data as any
-    await milestoneApi.saveMaterial(row.id || row.milestoneId, {
-      fieldCode: 'EVIDENCE',
-      fieldName: '节点完成佐证材料',
-      fileName: uploaded.fileName,
-      fileUrl: uploaded.fileUrl,
-      fileSize: uploaded.fileSize,
-    })
-    message.success(`已上传：${uploaded.fileName}`)
-    options.onSuccess?.(uploaded)
-    await loadBoard()
   } catch (e: any) {
-    options.onError?.(e)
-    if (!isSilentAuthError(e)) message.error(e.message || '材料上传失败')
+    if (!isSilentAuthError(e)) message.error(e.message || '保存年度目标失败')
+  } finally {
+    annualSaving.value = { ...annualSaving.value, [board.projectId]: false }
   }
 }
 
-async function onClose(row: any) {
-  if (!requireRowOwner(row)) return
+function submitAnnual(board: MilestoneProjectBoard) {
+  if (!guardBoard(board, 'submit')) return
+  if (!(board.milestones || []).length) {
+    message.warning('本年度尚无里程碑节点，请先编制')
+    return
+  }
   Modal.confirm({
-    title: '确认闭环销项？',
-    content: '销项前需已上传节点佐证材料，销项后节点自动转为绿色已完成状态。',
+    title: '提交本年度里程碑清单审核？',
+    content: '提交后清单进入单位科研管理部门审核，审核期间节点与年度目标锁定；审核通过后节点计划日期固化为基线，后续只能通过延期变更调整。',
     onOk: async () => {
+      annualSubmitting.value = { ...annualSubmitting.value, [board.projectId]: true }
       try {
-        await milestoneApi.close(row.id)
-        message.success('节点已闭环销项')
+        await projectApi.submitAnnualPlan(board.projectId, { year: annualYear.value })
+        message.success('清单已提交审核，等待单位科研管理部门审核存档')
         loadBoard()
       } catch (e: any) {
-        if (!isSilentAuthError(e)) message.error(e.message)
+        if (!isSilentAuthError(e)) message.error(e.message || '提交清单审核失败')
+      } finally {
+        annualSubmitting.value = { ...annualSubmitting.value, [board.projectId]: false }
       }
     },
   })
 }
 
-async function onDelay(row: any) {
+/* ------------------------------ 闭环销项 ------------------------------ */
+function onClose(row: any, board: MilestoneProjectBoard) {
+  if (!requireRowOwner(row, board)) return
+  if (inAudit(row)) {
+    message.info('该节点销项已提交审核，请等待审核结果')
+    return
+  }
+  if (!evidenceMaterials(row).length) {
+    message.warning('请先上传节点佐证材料（计划模板不计入佐证），再提交销项')
+    return
+  }
+  if (isOverdue(row)) {
+    openLag(row, 'close')
+    return
+  }
+  Modal.confirm({
+    title: '确认提交节点销项审核？',
+    content: `将里程碑「${row.name}」提交项目承担部门负责人审核，通过后继续流转单位科研管理部门负责人。`,
+    onOk: () => doClose(row, {}),
+  })
+}
+
+async function doClose(row: any, data: { lagReason?: string; lagMeasure?: string }) {
   try {
-    await milestoneApi.delay(row.id)
+    await milestoneApi.close(row.id, data)
+    message.success('已提交销项审核（待项目承担部门负责人审核）')
+    loadBoard()
+    return true
   } catch (e: any) {
-    message.warning(e.message)
+    if (!isSilentAuthError(e)) message.error(e.message || '提交销项失败')
+    return false
+  }
+}
+
+/* ------------------------------ 滞后原因 ------------------------------ */
+function onLag(row: any, board: MilestoneProjectBoard) {
+  if (!requireRowOwner(row, board)) return
+  openLag(row, 'lag')
+}
+function openLag(row: any, mode: 'lag' | 'close') {
+  lagRow.value = row
+  lagMode.value = mode
+  lagForm.lagReason = row.lagReason || ''
+  lagForm.lagMeasure = row.lagMeasure || ''
+  lagOpen.value = true
+}
+async function submitLag() {
+  const row = lagRow.value
+  if (!row) return
+  if (!lagForm.lagReason.trim() || !lagForm.lagMeasure.trim()) {
+    message.warning('请填写滞后原因与处理措施')
+    return
+  }
+  lagSaving.value = true
+  try {
+    const data = { lagReason: lagForm.lagReason.trim(), lagMeasure: lagForm.lagMeasure.trim() }
+    if (lagMode.value === 'close') {
+      if (await doClose(row, data)) lagOpen.value = false
+      return
+    }
+    await milestoneApi.lag(row.id, data)
+    message.success('滞后原因已登记')
+    lagOpen.value = false
+    loadBoard()
+  } catch (e: any) {
+    if (!isSilentAuthError(e)) message.error(e.message || '登记滞后原因失败')
+  } finally {
+    lagSaving.value = false
+  }
+}
+
+/* ------------------------------ 延期申请 ------------------------------ */
+function onDelay(row: any, board: MilestoneProjectBoard) {
+  if (!guardBoard(board, 'fill')) return
+  if (row.status === 'DONE') {
+    message.info('已完成节点无需延期')
+    return
+  }
+  delayRow.value = row
+  delayForm.newPlanDate = ''
+  delayForm.reason = ''
+  delayOpen.value = true
+}
+function delayDisabledDate(d: Dayjs) {
+  const base = delayRow.value?.planDate ? dayjs(delayRow.value.planDate) : dayjs()
+  return !d.isAfter(base, 'day')
+}
+async function submitDelay() {
+  const row = delayRow.value
+  if (!row) return
+  if (!delayForm.newPlanDate) {
+    message.warning('请选择新的计划完成日期')
+    return
+  }
+  if (row.planDate && !dayjs(delayForm.newPlanDate).isAfter(dayjs(row.planDate), 'day')) {
+    message.warning('新计划日期必须晚于当前计划完成时间')
+    return
+  }
+  if (!delayForm.reason.trim()) {
+    message.warning('请填写延期理由')
+    return
+  }
+  delaySaving.value = true
+  try {
+    const res = await milestoneApi.delay(row.id, { newPlanDate: delayForm.newPlanDate, reason: delayForm.reason.trim() })
+    const data = (res.data || {}) as any
+    delayOpen.value = false
+    message.success(`延期变更单${data.changeNo ? ` ${data.changeNo}` : ''}已生成，请前往项目变更提交审批`)
+    const pid = row.projectId || boardOf(row.projectId)?.projectId || ''
+    router.push(`/implement/change?projectId=${pid}&changeId=${data.changeId || ''}`)
+  } catch (e: any) {
+    if (!isSilentAuthError(e)) message.error(e.message || '发起延期申请失败')
+  } finally {
+    delaySaving.value = false
   }
 }
 
@@ -271,14 +475,13 @@ async function openFlow(projectId: number) {
 }
 
 async function removeRow(row: any) {
-  Modal.confirm({
-    title: '删除该节点？',
-    onOk: async () => {
-      await milestoneApi.remove(row.id)
-      message.success('已删除')
-      loadBoard()
-    },
-  })
+  try {
+    await milestoneApi.remove(row.id)
+    message.success('已删除')
+    loadBoard()
+  } catch (e: any) {
+    if (!isSilentAuthError(e)) message.error(e.message || '删除失败')
+  }
 }
 </script>
 
@@ -289,7 +492,7 @@ async function removeRow(row: any) {
         <h2 class="page-title">里程碑填报</h2>
         <div class="page-desc">
           按自然年度填报：年初编制里程碑节点（数量、名称、交付物类型名称、节点日期）；节点到期后上传佐证闭环销项。
-          到期前 30 天黄色预警，超期转红；逾期禁止改日期，须走【项目变更】延期审批。
+          到期前 30 天黄色预警，超期转红；清单存档后计划日期进入基线，须走【延期申请】生成项目变更审批。
         </div>
       </div>
       <a-space>
@@ -299,6 +502,7 @@ async function removeRow(row: any) {
       </a-space>
     </div>
     <WorkDutyBar code="milestone_compile" :project="dutyProject" />
+    <div class="duty-note">以上定责按第一个项目展示，以下各项目的保存、新增、编辑、销项等操作按项目分别判定。</div>
 
     <a-row :gutter="16" style="margin-bottom: 16px">
       <a-col :span="6"><div class="stat-card"><div class="label">我的待办</div><div class="value">{{ summary.todo || 0 }}</div></div></a-col>
@@ -318,7 +522,8 @@ async function removeRow(row: any) {
         <a-tab-pane key="CLOSE_AUDIT" :tab="`销项审核 ${summary.closeAudit || 0}`" />
         <a-tab-pane key="CLOSE" :tab="`销项上传 ${summary.close || 0}`" />
       </a-tabs>
-      <a-empty v-if="!filteredTodos.length" description="当前筛选下暂无待办" />
+      <a-spin v-if="loading && !todos.length" style="display: block; padding: 24px 0" />
+      <a-empty v-else-if="!loading && !filteredTodos.length" description="当前筛选下暂无待办" />
       <div v-else class="todo-grid">
         <div v-for="(t, i) in filteredTodos" :key="`${t.taskType}-${t.projectId}-${t.milestoneId || i}`" class="todo-card">
           <div class="todo-top">
@@ -353,102 +558,161 @@ async function removeRow(row: any) {
     >
       <div class="proj-head">
         <div>
-          <div class="proj-title">{{ board.projectName }} <span>{{ board.projectNo }}</span></div>
+          <div class="proj-title">
+            {{ board.projectName }} <span>{{ board.projectNo }}</span>
+            <a-tag v-if="board.annualStatus === 'PENDING_AUDIT' || board.annualAuditPending" color="orange" style="margin-left: 8px">清单审核中</a-tag>
+            <a-tag v-else-if="board.annualStatus === 'DONE' || board.annualArchived" color="green" style="margin-left: 8px">清单已存档</a-tag>
+            <a-tag v-else-if="board.annualStatus === 'RETURN'" color="red" style="margin-left: 8px">清单已驳回</a-tag>
+          </div>
           <div class="proj-sub">年度目标：{{ board.annualGoal || '尚未填写' }} · 节点 {{ board.msDone || 0 }}/{{ board.msTotal || 0 }}</div>
         </div>
-        <a-space>
+        <a-space wrap>
           <StatusTag :color="board.warnColor" :text="warnText(board.warnColor)" />
           <a-button @click="openFlow(board.projectId)">流程图</a-button>
           <a-button @click="router.push(`${implCompilePath(board.projectId)}&view=1`)">查看清单</a-button>
-          <a-button @click="router.push(implCompilePath(board.projectId))">编制里程碑节点</a-button>
-          <a-button type="primary" @click="onCreate(board.projectId)"><PlusOutlined />新增节点</a-button>
+          <a-button :disabled="annualLocked(board)" @click="router.push(implCompilePath(board.projectId))">编制里程碑节点</a-button>
+          <a-button type="primary" :disabled="annualLocked(board) || !boardCan(board, 'fill')" @click="onCreate(board)"><PlusOutlined />新增节点</a-button>
         </a-space>
       </div>
       <div class="annual-editor">
         <a-row :gutter="16">
           <a-col :span="12">
             <a-form-item label="本年度目标">
-              <a-textarea v-model:value="board.annualGoal" :rows="2" placeholder="填写本年度总体目标" />
+              <a-textarea v-model:value="board.annualGoal" :rows="2" :disabled="annualLocked(board) || !!board.annualArchived || !boardCan(board, 'fill')" placeholder="填写本年度总体目标" />
             </a-form-item>
           </a-col>
           <a-col :span="12">
             <a-form-item label="年度计划说明">
-              <a-textarea v-model:value="board.planContent" :rows="2" placeholder="填写年度任务、考核指标及工作安排" />
+              <a-textarea v-model:value="board.planContent" :rows="2" :disabled="annualLocked(board) || !!board.annualArchived || !boardCan(board, 'fill')" placeholder="填写年度任务、考核指标及工作安排" />
             </a-form-item>
           </a-col>
         </a-row>
-        <a-button type="link" :loading="annualSaving" @click="saveAnnual(board)">保存年度目标</a-button>
+        <a-space>
+          <a-button v-if="boardCan(board, 'fill') && !board.annualArchived" type="link" :disabled="annualLocked(board)" :loading="!!annualSaving[board.projectId]" @click="saveAnnual(board)">保存年度目标</a-button>
+          <span v-if="board.annualArchived && boardCan(board, 'fill')" class="empty-mat">年度目标已存档，修改请走「数据变更」；可增补节点后再次提交清单审核</span>
+          <a-button
+            v-if="canSubmitAnnual(board) && boardCan(board, 'fill')"
+            type="primary"
+            size="small"
+            :loading="!!annualSubmitting[board.projectId]"
+            @click="submitAnnual(board)"
+          >提交清单审核</a-button>
+          <span v-else-if="!annualLocked(board) && boardCan(board, 'fill')" class="empty-mat">编制里程碑节点后可提交清单审核</span>
+        </a-space>
       </div>
       <a-table
         :columns="columns"
         :data-source="board.milestones || []"
         :loading="loading"
         row-key="id"
-        :scroll="{ x: 1200 }"
+        :scroll="{ x: 1100 }"
         :pagination="false"
+        :locale="{ emptyText: '暂无里程碑，请先编制' }"
       >
         <template #bodyCell="{ column, record, index }">
           <template v-if="column.key === 'idx'">{{ index + 1 }}</template>
           <template v-else-if="column.dataIndex === 'name'">
             <div class="ms-name">{{ record.name }}</div>
-            <div class="ms-plan">计划：节点预算 {{ fmtAmount(record.budget) }} 万元</div>
+            <div v-if="record.dateLocked" class="ms-plan">基线 {{ fmtDate(record.baselinePlanDate || record.planDate) }}<template v-if="record.delayCount"> · 已延期 {{ record.delayCount }} 次</template></div>
           </template>
           <template v-else-if="column.dataIndex === 'planDate'">{{ fmtDate(record.planDate) }}</template>
+          <template v-else-if="column.dataIndex === 'budget'">{{ fmtAmount(record.budget) }}</template>
           <template v-else-if="column.dataIndex === 'colorStatus'"><StatusTag :color="record.colorStatus" /></template>
           <template v-else-if="column.key === 'remain'">
             <span :style="{ color: record.colorStatus === 'RED' ? '#f5222d' : record.colorStatus === 'YELLOW' ? '#faad14' : '#8c8c8c' }">
-              {{ record.status === 'DONE' ? `完成 ${fmtDate(record.actualDate)}` : record.status === 'CLOSE_DEPT_AUDIT' ? '待项目承担部门负责人审核' : record.status === 'CLOSE_UNIT_AUDIT' ? '待单位科研管理部门负责人审核' : dueText(record.planDate) }}
+              {{ remainText(record) }}
             </span>
           </template>
           <template v-else-if="column.dataIndex === 'evidence'">
             <div class="material-cell">
-              <a
-                v-for="m in record.materials || []"
-                :key="m.id"
-                href="#"
-                @click.prevent="openMaterial(m)"
-              >{{ m.fileName }}</a>
+              <a-tooltip v-for="m in record.materials || []" :key="m.id" :title="m.fileName">
+                <a href="#" @click.prevent="openMaterial(m)">{{ m.fileName }}</a>
+              </a-tooltip>
               <span v-if="!(record.materials || []).length" class="empty-mat">未上传</span>
             </div>
           </template>
           <template v-else-if="column.key === 'action'">
-            <a-space :size="2">
-              <a-button type="link" size="small" @click="loadDetail(record.id)">查看详情</a-button>
-              <a-divider type="vertical" />
-              <template v-if="record.status === 'DONE'">
-                <span class="archived">佐证已归档</span>
-              </template>
-              <template v-else-if="record.status === 'CLOSE_DEPT_AUDIT' || record.status === 'CLOSE_UNIT_AUDIT'">
-                <a-tag color="processing">销项审核中</a-tag>
-                <a-button type="link" size="small" @click="router.push(implClosePath(record.projectId || board.projectId, record.id))">查看审核</a-button>
-              </template>
-              <template v-else>
-                <a-button v-if="canCloseRow(record, board)" type="link" size="small" @click="router.push(implClosePath(record.projectId || board.projectId, record.id))">上传材料</a-button>
-                <a-dropdown>
-                  <a-button type="link" size="small">更多</a-button>
-                  <template #overlay>
-                    <a-menu>
-                      <a-menu-item key="edit" @click="onEdit(record)">编辑</a-menu-item>
-                      <a-menu-item v-if="canCloseRow(record, board)" key="close" @click="onClose(record)">闭环销项</a-menu-item>
-                      <a-menu-item key="delay" @click="onDelay(record)">延期申请</a-menu-item>
-                      <a-menu-item key="del" @click="removeRow(record)">删除</a-menu-item>
-                    </a-menu>
-                  </template>
-                </a-dropdown>
-              </template>
+            <a-space :size="0">
+              <a-button type="link" size="small" @click="loadDetail(record.id)">查看</a-button>
+              <a-button v-if="canEditRow(record, board)" type="link" size="small" @click="onEdit(record, board)">编辑</a-button>
+              <a-dropdown v-if="record.status !== 'DONE'" :trigger="['click']">
+                <a-button type="link" size="small">更多</a-button>
+                <template #overlay>
+                  <a-menu>
+                    <a-menu-item key="upload" @click="router.push(implClosePath(record.projectId || board.projectId, record.id))">上传材料</a-menu-item>
+                    <a-menu-item key="close" :disabled="inAudit(record)" @click="onClose(record, board)">闭环销项</a-menu-item>
+                    <a-menu-item key="delay" @click="onDelay(record, board)">延期申请</a-menu-item>
+                    <a-menu-item key="lag" @click="onLag(record, board)">滞后原因</a-menu-item>
+                    <a-menu-item v-if="record.canDelete" key="del" danger>
+                      <a-popconfirm title="删除该节点？删除后不可恢复。" ok-text="删除" cancel-text="取消" @confirm="removeRow(record)">
+                        <span class="menu-pop" @click.stop>删除</span>
+                      </a-popconfirm>
+                    </a-menu-item>
+                  </a-menu>
+                </template>
+              </a-dropdown>
+              <span v-else class="archived">佐证已归档</span>
             </a-space>
           </template>
         </template>
       </a-table>
     </a-card>
-    <a-empty v-if="!visibleBoards.length && !loading" description="当前年度暂无可见项目" />
+    <a-empty v-if="!loading && !visibleBoards.length" description="当前年度暂无可见项目" />
 
-    <a-modal v-model:open="open" :title="editing ? '编辑节点' : '新增节点'" @ok="onSave">
+    <a-modal v-model:open="open" :title="editing ? '编辑节点' : '新增节点'" :confirm-loading="saving" @ok="onSave">
       <a-form layout="vertical">
         <a-form-item label="里程碑名称" required><a-input v-model:value="form.name" /></a-form-item>
         <a-form-item label="年度"><a-input-number v-model:value="form.year" style="width: 100%" /></a-form-item>
-        <a-form-item label="计划完成时间"><a-date-picker v-model:value="form.planDate" style="width: 100%" value-format="YYYY-MM-DD" /></a-form-item>
-        <a-form-item label="节点预算（万元）"><a-input-number v-model:value="form.budget" style="width: 100%" /></a-form-item>
+        <a-form-item
+          label="计划完成时间"
+          :required="!editing"
+          :extra="editLocked ? '日期已进入基线，如需调整请走【延期申请】' : ''"
+        >
+          <a-date-picker v-model:value="form.planDate" :disabled="editLocked" style="width: 100%" value-format="YYYY-MM-DD" />
+        </a-form-item>
+        <a-form-item label="节点预算（万元）"><a-input-number v-model:value="form.budget" :min="0" style="width: 100%" /></a-form-item>
+      </a-form>
+    </a-modal>
+
+    <a-modal v-model:open="delayOpen" title="延期申请" :confirm-loading="delaySaving" ok-text="生成延期变更单" @ok="submitDelay">
+      <a-alert
+        type="info"
+        show-icon
+        style="margin-bottom: 12px"
+        :message="`节点「${delayRow?.name || ''}」当前计划完成 ${fmtDate(delayRow?.planDate)}`"
+        description="提交后系统生成一条「里程碑延期」项目变更草稿，需在项目变更页提交审批；审批通过后计划日期自动更新。"
+      />
+      <a-form layout="vertical">
+        <a-form-item label="新计划完成日期" required>
+          <a-date-picker v-model:value="delayForm.newPlanDate" :disabled-date="delayDisabledDate" style="width: 100%" value-format="YYYY-MM-DD" />
+        </a-form-item>
+        <a-form-item label="延期理由" required>
+          <a-textarea v-model:value="delayForm.reason" :rows="3" placeholder="说明延期原因、影响及后续安排" />
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
+    <a-modal
+      v-model:open="lagOpen"
+      :title="lagMode === 'close' ? '逾期节点销项 · 填写滞后原因' : '登记滞后原因'"
+      :confirm-loading="lagSaving"
+      :ok-text="lagMode === 'close' ? '提交销项审核' : '保存'"
+      @ok="submitLag"
+    >
+      <a-alert
+        v-if="lagMode === 'close'"
+        type="warning"
+        show-icon
+        style="margin-bottom: 12px"
+        :message="`节点「${lagRow?.name || ''}」已逾期，提交销项前须填写滞后原因与处理措施`"
+      />
+      <a-form layout="vertical">
+        <a-form-item label="滞后原因" required>
+          <a-textarea v-model:value="lagForm.lagReason" :rows="3" placeholder="说明节点滞后的主要原因" />
+        </a-form-item>
+        <a-form-item label="处理措施" required>
+          <a-textarea v-model:value="lagForm.lagMeasure" :rows="3" placeholder="已采取或拟采取的追赶措施" />
+        </a-form-item>
       </a-form>
     </a-modal>
 
@@ -459,10 +723,13 @@ async function removeRow(row: any) {
         <a-descriptions-item label="负责人">{{ detail.ownerName || '—' }}</a-descriptions-item>
         <a-descriptions-item label="年度">{{ detail.year }}</a-descriptions-item>
         <a-descriptions-item label="计划完成">{{ fmtDate(detail.planDate) }}</a-descriptions-item>
+        <a-descriptions-item label="基线日期">{{ fmtDate(detail.baselinePlanDate) }}<a-tag v-if="detail.dateLocked" color="orange" style="margin-left: 8px">已锁定</a-tag></a-descriptions-item>
+        <a-descriptions-item label="延期次数">{{ detail.delayCount || 0 }}</a-descriptions-item>
         <a-descriptions-item label="实际完成">{{ fmtDate(detail.actualDate) }}</a-descriptions-item>
         <a-descriptions-item label="节点预算">{{ fmtAmount(detail.budget) }} 万元</a-descriptions-item>
-        <a-descriptions-item label="状态"><StatusTag :color="detail.colorStatus" /></a-descriptions-item>
+        <a-descriptions-item label="状态"><StatusTag :color="detail.colorStatus" /> <span class="empty-mat">{{ remainText(detail) }}</span></a-descriptions-item>
         <a-descriptions-item label="滞后原因">{{ detail.lagReason || '—' }}</a-descriptions-item>
+        <a-descriptions-item label="处理措施">{{ detail.lagMeasure || '—' }}</a-descriptions-item>
         <a-descriptions-item label="佐证材料">
           <div class="material-cell">
             <a v-for="m in detail.materials || []" :key="m.id" href="#" @click.prevent="openMaterial(m)">{{ m.fileName }}</a>
@@ -477,6 +744,7 @@ async function removeRow(row: any) {
 
 <style scoped>
 .page-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
+.duty-note { margin: -8px 0 16px; color: #8c8c8c; font-size: 12px; }
 .todo-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .todo-card { border: 1px solid #e8e8e8; border-radius: 4px; padding: 16px; background: #fff; }
 .todo-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
@@ -488,16 +756,15 @@ async function removeRow(row: any) {
 .proj-title { font-size: 16px; font-weight: 600; color: #262626; }
 .proj-title span { margin-left: 8px; color: #8c8c8c; font-weight: 400; font-size: 13px; }
 .proj-sub { margin-top: 4px; color: #8c8c8c; font-size: 13px; }
-.annual-editor { margin-bottom: 8px; padding: 8px 12px 0; border: 1px solid #d6e4ff; border-radius: 4px; background: #f5f8ff; }
+.annual-editor { margin-bottom: 8px; padding: 8px 12px 8px; border: 1px solid #d6e4ff; border-radius: 4px; background: #f5f8ff; }
 .ms-name { font-weight: 500; }
 .ms-plan { color: #8c8c8c; font-size: 12px; }
-.material-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
-.material-cell a { max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #0064ef; }
+.material-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; max-width: 100%; }
+.material-cell a { display: block; max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #0064ef; }
 .empty-mat, .archived { color: #8c8c8c; font-size: 12px; }
+.menu-pop { display: block; }
 @media (max-width: 1100px) {
   .todo-grid { grid-template-columns: 1fr; }
   .page-head { flex-direction: column; }
 }
 </style>
-
-

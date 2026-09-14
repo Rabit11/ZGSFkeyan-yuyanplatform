@@ -78,11 +78,11 @@ function handleChange(value: number) {
 
 <template>
   <a-select
-    :value="modelValue"
+    :value="loading && !selectOptions.length ? undefined : modelValue"
     :disabled="disabled"
     :loading="loading"
     show-search
-    :placeholder="placeholder || '选择项目'"
+    :placeholder="loading ? '正在加载项目…' : (placeholder || '选择项目')"
     style="width: 420px"
     :filter-option="(i: string, o: any) => String(o.label || '').toLowerCase().includes(String(i).toLowerCase())"
     @change="handleChange"

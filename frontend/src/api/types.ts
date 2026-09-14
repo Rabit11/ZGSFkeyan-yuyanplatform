@@ -193,19 +193,34 @@ export interface ProjMilestone {
   planDate?: string
   actualDate?: string
   budget?: number
+  /** DOING → CLOSE_DEPT_AUDIT → CLOSE_UNIT_AUDIT → DONE；OVERDUE 为后端在 RED 且未完成时给出的展示态 */
   status?: 'DOING' | 'DONE' | 'OVERDUE' | 'CLOSE_DEPT_AUDIT' | 'CLOSE_UNIT_AUDIT'
   colorStatus?: ColorStatus
   evidence?: number
   materials?: ProjMaterial[]
+  /** 基线日期：年度清单存档后固化 */
+  baselinePlanDate?: string
+  /** 累计延期次数 */
+  delayCount?: number
   lagReason?: string
+  lagMeasure?: string
+  /** true 表示计划日期已锁定，只能走延期变更 */
+  dateLocked?: boolean
+  /** DOING、无佐证、未进基线时才允许删除 */
+  canDelete?: boolean
   projectName?: string
   projectNo?: string
   ownerName?: string
 }
 
 export interface MilestoneTodo {
-  taskType: 'COMPILE' | 'COMPILE_AUDIT' | 'CLOSE' | 'CLOSE_AUDIT'
+  taskType: 'COMPILE' | 'COMPILE_AUDIT' | 'CLOSE' | 'CLOSE_AUDIT' | 'BASIC_AUDIT'
   typeLabel?: string
+  /** 基本信息审批任务对应的草稿 id */
+  draftId?: number
+  flowNodeName?: string
+  submittedBy?: string
+  submittedAt?: string
   projectId: number
   projectNo?: string
   projectName?: string
@@ -334,6 +349,66 @@ export interface ProjChange {
   flowNode?: string
   applicant?: string
   createdAt?: string
+  /** 里程碑延期变更：关联节点与延期至日期 */
+  milestoneId?: number
+  newPlanDate?: string
+  auditTrail?: ChangeAuditRecord[]
+}
+
+export interface ChangeAuditRecord {
+  node?: string
+  nodeName?: string
+  actor?: string
+  actorNo?: string
+  pass?: boolean
+  opinion?: string
+  time?: string
+}
+
+/* ------------------------------ 基本信息审批草稿 ------------------------------ */
+export type BasicDraftStatus = 'NONE' | 'DRAFT' | 'APPROVING' | 'APPROVED' | 'REJECTED'
+
+export interface BasicDraftFlowNode {
+  code: string
+  name: string
+  skipped?: boolean
+}
+
+export interface BasicDraftAudit {
+  node?: string
+  nodeName?: string
+  actor?: string
+  actorNo?: string
+  pass?: boolean
+  opinion?: string
+  time?: string
+}
+
+export interface BasicDraft {
+  id?: number
+  status: BasicDraftStatus
+  flowNode?: string
+  flowNodeName?: string
+  flowNodes: BasicDraftFlowNode[]
+  payload: (Partial<ProjInfo> & { participants?: ProjParticipant[]; teamMembers?: ProjTeamMember[] }) | null
+  auditTrail: BasicDraftAudit[]
+  canEdit?: boolean
+  canSubmit?: boolean
+  canAudit?: boolean
+  submittedBy?: string
+  submittedAt?: string
+}
+
+export interface PendingBasicDraft {
+  draftId: number
+  projectId: number
+  projectNo?: string
+  projectName?: string
+  ownerName?: string
+  flowNode?: string
+  flowNodeName?: string
+  submittedBy?: string
+  submittedAt?: string
 }
 
 /* ------------------------------ 立项申报/备案 ------------------------------ */
@@ -401,6 +476,9 @@ export interface ProjMaterial {
   fieldName?: string
   fileName?: string
   fileUrl?: string
+  /** MinIO 对象键（POST /files/upload 返回，登记材料时必传） */
+  objectKey?: string
+  fileSize?: number
   version?: number
   required?: number
   locked?: number
