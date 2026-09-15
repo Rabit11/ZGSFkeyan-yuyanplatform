@@ -173,20 +173,23 @@ const period = computed(() => {
 
 <style scoped>
 .block {
-  border: 1px solid #e8e8e8;
-  border-radius: 4px;
+  border: 1px solid var(--zgsf-border);
+  border-radius: var(--zgsf-radius-card);
   padding: 16px;
   min-height: 220px;
-  background: #fff;
+  background: var(--zgsf-card);
+  box-shadow: var(--zgsf-shadow);
 }
 .block-title {
+  color: var(--zgsf-text);
+  font-size: 16px;
   font-weight: 600;
   margin-bottom: 12px;
 }
 .ms-hint,
 .ms-extra {
   font-size: 12px;
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
   margin-bottom: 8px;
 }
 .ms-item {
@@ -199,9 +202,9 @@ const period = computed(() => {
   margin-bottom: 4px;
 }
 .ms-empty {
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
   padding: 10px 0;
-  border-bottom: 1px dashed #f0f0f0;
+  border-bottom: 1px dashed var(--zgsf-border-light);
 }
 .dv-grid {
   display: grid;
@@ -209,19 +212,29 @@ const period = computed(() => {
   gap: 8px;
 }
 .dv-item {
-  border: 1px solid #f0f0f0;
-  border-radius: 4px;
+  border: 1px solid var(--zgsf-border-light);
+  border-radius: var(--zgsf-radius);
   padding: 8px;
+  background: var(--zgsf-fill);
 }
 .dv-name {
   font-size: 12px;
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
 }
 .dv-value {
   font-weight: 600;
   font-size: 16px;
+  color: var(--zgsf-text);
+  font-variant-numeric: tabular-nums;
 }
 .fund-num {
   margin-bottom: 8px;
+}
+
+@media (max-width: 640px) {
+  .block {
+    min-height: auto;
+    padding: 12px;
+  }
 }
 </style>

@@ -193,3 +193,15 @@ function doFiling(row: any) {
     />
   </div>
 </template>
+
+<style scoped>
+@media (max-width: 640px) {
+  :deep(.ant-row) {
+    row-gap: 8px;
+  }
+  :deep(.ant-row > .ant-col) {
+    flex: 0 0 100%;
+    max-width: 100%;
+  }
+}
+</style>

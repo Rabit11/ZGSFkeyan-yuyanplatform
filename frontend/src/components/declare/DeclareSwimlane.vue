@@ -154,8 +154,8 @@ const svgHtml = computed(() => {
 }
 .swim-inner {
   width: min(1280px, 100%);
-  background: #fff;
-  border-radius: 8px;
+  background: var(--zgsf-card);
+  border-radius: var(--zgsf-radius-card);
   padding: 16px 16px 20px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.2);
 }
@@ -169,15 +169,15 @@ const svgHtml = computed(() => {
 .swim-bar h3 {
   margin: 0;
   font-size: 14px;
-  color: #1f1f1f;
+  color: var(--zgsf-text);
   line-height: 22px;
   font-weight: 600;
 }
 .swim-wrap {
-  border: 1px solid #e8e8e8;
-  border-radius: 4px;
+  border: 1px solid var(--zgsf-border);
+  border-radius: var(--zgsf-radius);
   overflow: auto;
-  background: #fff;
+  background: var(--zgsf-card);
 }
 .swim-wrap :deep(svg) {
   width: 100%;

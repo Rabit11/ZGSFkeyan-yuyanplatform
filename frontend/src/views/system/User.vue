@@ -773,19 +773,19 @@ const columns = [
   color: #d46b08;
   background: #fff7e6;
   border: 1px solid #ffd591;
-  border-radius: 4px;
+  border-radius: var(--zgsf-radius);
   padding: 2px 8px;
   margin-bottom: 8px;
 }
 .page-title .sub {
   font-size: 14px;
   font-weight: 400;
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
 }
 .identity-cell {
   display: inline-block;
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--zgsf-radius);
   line-height: 1.5;
 }
 .identity-cell.highlight {
@@ -796,21 +796,21 @@ const columns = [
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: #262626;
+  color: var(--zgsf-text);
 }
 .status-on .dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #52c41a;
+  background: var(--c-green);
   display: inline-block;
 }
 .status-on .dot.off {
-  background: #bfbfbf;
+  background: var(--zgsf-text-disabled);
 }
 .field-hint {
   margin-top: 6px;
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
   font-size: 12px;
 }
 .batch-title {
@@ -818,7 +818,7 @@ const columns = [
   margin-bottom: 4px;
 }
 .page-desc {
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
   font-size: 12px;
 }
 </style>

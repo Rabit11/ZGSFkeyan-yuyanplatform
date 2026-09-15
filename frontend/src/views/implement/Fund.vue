@@ -1072,9 +1072,7 @@ function backList() {
 
 <style scoped>
 .fund-page {
-  background:
-    radial-gradient(circle at 14% 0%, rgba(22, 119, 255, 0.08), transparent 28%),
-    linear-gradient(180deg, #f7fbff 0%, #f4f6f9 220px, transparent 360px);
+  background: var(--zgsf-bg);
 }
 .project-summary {
   display: flex;
@@ -1083,12 +1081,10 @@ function backList() {
   gap: 16px;
   margin: 14px 0 16px;
   padding: 18px 20px;
-  border: 1px solid #d6e8ff;
-  border-radius: 12px;
-  background:
-    linear-gradient(135deg, rgba(22, 119, 255, 0.1), rgba(255, 255, 255, 0.95) 46%),
-    #fff;
-  box-shadow: 0 8px 22px rgba(0, 35, 90, 0.06);
+  border: 1px solid #b7d3fb;
+  border-radius: var(--zgsf-radius-card);
+  background: var(--zgsf-brand-softer);
+  box-shadow: var(--zgsf-shadow);
 }
 .project-summary-main {
   min-width: 0;
@@ -1096,12 +1092,12 @@ function backList() {
 .summary-eyebrow {
   margin-bottom: 4px;
   font-size: 12px;
-  color: #1677ff;
+  color: var(--zgsf-brand);
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
 }
 .summary-title {
-  color: #1f1f1f;
+  color: var(--zgsf-text);
   font-size: 18px;
   font-weight: 700;
   line-height: 1.4;
@@ -1111,59 +1107,59 @@ function backList() {
   flex-wrap: wrap;
   gap: 8px 18px;
   margin-top: 10px;
-  color: #596579;
+  color: var(--zgsf-text-subtle);
   font-size: 13px;
 }
 .fund-main-card {
-  border: 1px solid #e6eef8;
-  border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(15, 45, 95, 0.05);
+  border: 1px solid var(--zgsf-border);
+  border-radius: var(--zgsf-radius-card);
+  box-shadow: var(--zgsf-shadow);
   overflow: hidden;
 }
 .fund-main-card :deep(.ant-card-body) {
-  background: #fff;
+  background: var(--zgsf-card);
 }
 .fund-toolbar {
   align-items: center;
   margin-top: 8px;
   padding: 12px;
-  border: 1px solid #edf2f7;
-  border-radius: 10px;
-  background: #fbfdff;
+  border: 1px solid var(--zgsf-border);
+  border-radius: var(--zgsf-radius-card);
+  background: var(--zgsf-fill);
 }
 .stat-row {
   margin-bottom: 16px;
 }
 .stat-row .stat-card {
   min-height: 92px;
-  border-radius: 10px;
-  background: linear-gradient(180deg, #fff, #fbfdff);
-  box-shadow: 0 4px 16px rgba(15, 45, 95, 0.04);
+  border-radius: var(--zgsf-radius-card);
+  background: var(--zgsf-card);
+  box-shadow: var(--zgsf-shadow);
 }
 .flow-banner {
   margin-bottom: 16px;
   padding: 11px 14px;
-  background: linear-gradient(90deg, #e6f4ff, #f6fbff);
+  background: var(--zgsf-brand-soft);
   border: 1px solid #91caff;
-  border-radius: 8px;
-  color: #003a8c;
+  border-radius: var(--zgsf-radius-card);
+  color: var(--zgsf-header);
   font-size: 13px;
 }
-.form-title { margin: 8px 0 8px; font-size: 18px; color: #1f1f1f; font-weight: 700; }
-.form-hint { color: #6b7280; font-size: 13px; margin-bottom: 12px; line-height: 1.7; }
+.form-title { margin: 8px 0 8px; font-size: 18px; color: var(--zgsf-text); font-weight: 700; }
+.form-hint { color: var(--zgsf-text-secondary); font-size: 13px; margin-bottom: 12px; line-height: 1.7; }
 .proj-line {
   margin-bottom: 12px;
   padding: 10px 12px;
-  border-radius: 8px;
-  background: #fafafa;
-  color: #262626;
+  border-radius: var(--zgsf-radius-card);
+  background: var(--zgsf-fill);
+  color: var(--zgsf-text);
 }
 .sum-line {
   margin: 12px 0;
   padding: 10px 12px;
-  border-radius: 8px;
-  background: #fafafa;
-  color: #262626;
+  border-radius: var(--zgsf-radius-card);
+  background: var(--zgsf-fill);
+  color: var(--zgsf-text);
 }
 .form-actions {
   display: flex;
@@ -1171,8 +1167,8 @@ function backList() {
   gap: 8px;
   margin-top: 16px;
   padding: 12px;
-  border: 1px solid #eef2f7;
-  border-radius: 10px;
+  border: 1px solid var(--zgsf-border);
+  border-radius: var(--zgsf-radius-card);
   background: rgba(255, 255, 255, 0.92);
 }
 .sec-hd {
@@ -1181,18 +1177,18 @@ function backList() {
   align-items: center;
   gap: 10px;
   margin-bottom: 10px;
-  color: #1f2a44;
+  color: var(--zgsf-text);
   font-weight: 700;
 }
 .budget-year-form {
   max-width: 240px;
 }
 .wo-card {
-  border: 1px solid #d6e8ff;
-  border-radius: 10px;
+  border: 1px solid #b7d3fb;
+  border-radius: var(--zgsf-radius-card);
   padding: 14px 14px 2px;
   margin-bottom: 12px;
-  background: linear-gradient(180deg, #fbfdff, #fff);
+  background: var(--zgsf-brand-softer);
 }
 .wo-hd {
   display: flex;
@@ -1200,18 +1196,16 @@ function backList() {
   align-items: center;
   padding-bottom: 8px;
   margin-bottom: 12px;
-  border-bottom: 1px dashed #dbe7f5;
-  color: #1f2a44;
+  border-bottom: 1px dashed var(--zgsf-border);
+  color: var(--zgsf-text);
   font-weight: 700;
 }
 .finance-desk {
   margin-bottom: 16px;
   padding: 16px;
-  border: 1px solid #b8d9ff;
-  border-radius: 12px;
-  background:
-    linear-gradient(135deg, rgba(22, 119, 255, 0.13), rgba(255, 255, 255, 0.78) 52%),
-    #f0f7ff;
+  border: 1px solid #91caff;
+  border-radius: var(--zgsf-radius-card);
+  background: var(--zgsf-brand-softer);
 }
 .finance-head {
   display: flex;
@@ -1220,28 +1214,28 @@ function backList() {
   margin-bottom: 12px;
   gap: 12px;
 }
-.finance-title { font-size: 16px; font-weight: 800; color: #003a8c; }
-.finance-desc { margin-top: 4px; font-size: 12px; color: #4b5563; line-height: 1.6; }
+.finance-title { font-size: 16px; font-weight: 700; color: var(--zgsf-header); }
+.finance-desc { margin-top: 4px; font-size: 12px; color: var(--zgsf-text-subtle); line-height: 1.6; }
 .finance-task {
   min-height: 112px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   padding: 14px;
-  border: 1px solid #d9e8ff;
-  border-radius: 10px;
-  background: #fff;
-  box-shadow: 0 4px 14px rgba(0, 72, 160, 0.05);
+  border: 1px solid var(--zgsf-border);
+  border-radius: var(--zgsf-radius-card);
+  background: var(--zgsf-card);
+  box-shadow: var(--zgsf-shadow);
   transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
 }
 .finance-task:not(.disabled):hover {
   border-color: #69b1ff;
-  box-shadow: 0 8px 22px rgba(0, 72, 160, 0.12);
+  box-shadow: 0 4px 12px rgba(0, 72, 160, 0.1);
   transform: translateY(-1px);
 }
 .finance-task.disabled { opacity: 0.65; }
-.task-title { display: flex; align-items: center; justify-content: space-between; font-weight: 600; color: #262626; }
-.task-desc { margin-top: 6px; min-height: 34px; font-size: 12px; color: #8c8c8c; }
+.task-title { display: flex; align-items: center; justify-content: space-between; font-weight: 600; color: var(--zgsf-text); }
+.task-desc { margin-top: 6px; min-height: 34px; font-size: 12px; color: var(--zgsf-text-secondary); }
 .fund-flow-design {
   display: grid;
   grid-template-columns: repeat(6, minmax(120px, 1fr));
@@ -1254,26 +1248,26 @@ function backList() {
   gap: 10px;
   min-height: 94px;
   padding: 12px;
-  border: 1px solid #e8e8e8;
-  border-radius: 10px;
-  background: linear-gradient(180deg, #fff, #fafafa);
+  border: 1px solid var(--zgsf-border);
+  border-radius: var(--zgsf-radius-card);
+  background: var(--zgsf-fill);
 }
-.fund-flow-step.done { border-color: #b7eb8f; background: linear-gradient(180deg, #f6ffed, #fff); }
-.fund-flow-step.current { border-color: #91caff; background: linear-gradient(180deg, #e6f4ff, #fff); box-shadow: inset 0 0 0 1px rgba(22, 119, 255, 0.12); }
+.fund-flow-step.done { border-color: #b7eb8f; background: #f6ffed; }
+.fund-flow-step.current { border-color: #91caff; background: var(--zgsf-brand-soft); box-shadow: inset 0 0 0 1px rgba(22, 119, 255, 0.12); }
 .step-no {
   width: 26px;
   height: 26px;
   flex: 0 0 26px;
   border-radius: 50%;
-  background: #d9d9d9;
-  color: #fff;
+  background: var(--zgsf-border);
+  color: var(--zgsf-card);
   display: grid;
   place-items: center;
   font-size: 12px;
   font-weight: 700;
 }
-.fund-flow-step.done .step-no { background: #52c41a; }
-.fund-flow-step.current .step-no { background: #1677ff; }
+.fund-flow-step.done .step-no { background: var(--c-green); }
+.fund-flow-step.current .step-no { background: var(--zgsf-brand); }
 .step-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .step-head {
   display: flex;
@@ -1281,18 +1275,18 @@ function backList() {
   justify-content: space-between;
   gap: 6px;
 }
-.step-main b { color: #262626; }
-.step-main small { color: #8c8c8c; line-height: 1.35; }
+.step-main b { color: var(--zgsf-text); }
+.step-main small { color: var(--zgsf-text-secondary); line-height: 1.35; }
 .fund-table {
-  border: 1px solid #eef2f7;
-  border-radius: 10px;
+  border: 1px solid var(--zgsf-border);
+  border-radius: var(--zgsf-radius-card);
   overflow: hidden;
 }
 .fund-table :deep(.ant-table-thead > tr > th) {
-  background: #f8fafc !important;
+  background: var(--zgsf-fill) !important;
 }
 .fund-table :deep(.ant-table-tbody > tr:hover > td) {
-  background: #f5f9ff !important;
+  background: var(--zgsf-brand-softer) !important;
 }
 @media (max-width: 1400px) {
   .fund-flow-design { grid-template-columns: repeat(3, minmax(160px, 1fr)); }
@@ -1307,6 +1301,19 @@ function backList() {
   .form-actions {
     justify-content: flex-start;
     flex-wrap: wrap;
+  }
+}
+@media (max-width: 600px) {
+  .project-summary,
+  .finance-desk,
+  .finance-task,
+  .fund-flow-step {
+    padding: 12px;
+  }
+  .finance-head,
+  .sec-hd {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 </style>

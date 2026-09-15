@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   AppstoreOutlined,
@@ -29,7 +29,7 @@ const router = useRouter()
 const userStore = useUserStore()
 const pendingStore = usePendingStore()
 
-const collapsed = ref(false)
+const collapsed = ref(window.innerWidth < 760)
 const unread = ref(0)
 const searchKw = ref('')
 const auditPopupOpen = ref(false)
@@ -301,6 +301,15 @@ watch(
 onUnmounted(() => {
   if (pendingRefreshTimer) clearInterval(pendingRefreshTimer)
   pendingRefreshTimer = undefined
+  window.removeEventListener('resize', syncResponsiveSider)
+})
+
+function syncResponsiveSider() {
+  if (window.innerWidth < 760) collapsed.value = true
+}
+
+onMounted(() => {
+  window.addEventListener('resize', syncResponsiveSider)
 })
 
 watch(
@@ -487,14 +496,17 @@ function onLogout() {
 
 <style scoped>
 .app-header {
-  height: 64px !important;
+  position: relative;
+  z-index: 20;
+  height: var(--header-h) !important;
   line-height: normal !important;
-  padding: 0 20px !important;
+  padding: 0 var(--gap-md) !important;
   display: flex;
   align-items: center;
-  gap: 20px;
-  background: #0048a0 !important;
-  color: #fff;
+  gap: var(--gap-md);
+  background: var(--zgsf-header) !important;
+  color: var(--zgsf-card);
+  box-shadow: 0 2px 8px rgba(0, 36, 80, 0.18);
 }
 .header-left {
   display: flex;
@@ -504,7 +516,8 @@ function onLogout() {
 .logo {
   width: 32px;
   height: 32px;
-  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  border-radius: var(--zgsf-radius);
   background: rgba(255, 255, 255, 0.18);
   display: grid;
   place-items: center;
@@ -514,29 +527,37 @@ function onLogout() {
 .sys-name {
   font-size: 18px;
   font-weight: 600;
-  letter-spacing: 1px;
+  letter-spacing: 0;
   white-space: nowrap;
 }
 .header-tag {
   margin-left: 12px;
-  color: #fff !important;
+  color: var(--zgsf-card) !important;
   border: none !important;
-  background: rgba(255, 255, 255, 0.16) !important;
+  background: rgba(255, 255, 255, 0.14) !important;
+  border-radius: var(--zgsf-radius) !important;
 }
 .header-search {
   flex: 1;
-  max-width: 360px;
+  max-width: 400px;
   margin: 0 auto;
 }
 .header-search :deep(.ant-input-affix-wrapper) {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.28);
-  color: #fff;
-  border-radius: 4px;
+  height: 36px;
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: var(--zgsf-card);
+  border-radius: var(--zgsf-radius);
+  box-shadow: none !important;
+}
+.header-search :deep(.ant-input-affix-wrapper:hover),
+.header-search :deep(.ant-input-affix-wrapper-focused) {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.62) !important;
 }
 .header-search :deep(.ant-input) {
   background: transparent;
-  color: #fff;
+  color: var(--zgsf-card);
 }
 .header-search :deep(.ant-input::placeholder) {
   color: rgba(255, 255, 255, 0.65);
@@ -545,24 +566,69 @@ function onLogout() {
   color: rgba(255, 255, 255, 0.85);
 }
 .header-right {
-  color: #fff;
+  color: var(--zgsf-card);
   flex-shrink: 0;
   margin-left: auto;
 }
 .header-icon {
+  width: 32px;
+  height: 32px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: var(--zgsf-radius);
   font-size: 16px;
   cursor: pointer;
+  transition: background-color 0.16s ease;
+}
+.header-icon:hover {
+  background: rgba(255, 255, 255, 0.14);
 }
 .header-user {
+  min-height: 36px;
+  padding: 0 8px;
   cursor: pointer;
-  color: #fff;
+  color: var(--zgsf-card);
+  border-radius: var(--zgsf-radius);
+  transition: background-color 0.16s ease;
+}
+.header-user:hover {
+  background: rgba(255, 255, 255, 0.14);
 }
 .header-role {
   opacity: 0.75;
   font-size: 12px;
 }
 .sider-trigger {
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
   padding: 8px 12px;
+  border-bottom: 1px solid var(--zgsf-border-light);
+}
+.sider-trigger :deep(.ant-btn) {
+  width: 32px;
+  height: 32px;
+  color: var(--zgsf-text-subtle);
+}
+.app-sider :deep(.ant-menu) {
+  padding: 8px 0 16px;
+  background: transparent;
+}
+.app-sider :deep(.ant-menu-item),
+.app-sider :deep(.ant-menu-submenu-title) {
+  min-height: 40px;
+  margin-block: 2px;
+  border-radius: var(--zgsf-radius);
+}
+.app-sider :deep(.ant-menu-submenu-title) {
+  font-weight: 500;
+}
+.app-sider :deep(.ant-menu-item-selected) {
+  font-weight: 600;
+}
+.app-sider :deep(.ant-menu-sub.ant-menu-inline) {
+  background: var(--zgsf-fill);
 }
 .menu-child-label {
   display: flex;
@@ -586,9 +652,15 @@ function onLogout() {
   justify-content: space-between;
   gap: 12px;
   padding: 12px;
-  border: 1px solid #f0f0f0;
-  border-radius: 6px;
-  background: #fff;
+  min-height: 72px;
+  border: 1px solid var(--zgsf-border);
+  border-radius: var(--zgsf-radius-card);
+  background: var(--zgsf-card);
+  transition: border-color 0.16s ease, background-color 0.16s ease;
+}
+.audit-popup-item:hover {
+  border-color: #b7d3fb;
+  background: var(--zgsf-brand-softer);
 }
 .audit-popup-main {
   min-width: 0;
@@ -600,13 +672,13 @@ function onLogout() {
   min-width: 0;
 }
 .audit-popup-title {
-  color: #262626;
+  color: var(--zgsf-text);
   font-weight: 600;
 }
 .audit-popup-sub,
 .audit-popup-node {
   margin-top: 2px;
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -615,5 +687,75 @@ function onLogout() {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;
+}
+
+@media (max-width: 1100px) {
+  .app-header {
+    gap: 12px;
+  }
+  .header-tag,
+  .header-role {
+    display: none;
+  }
+  .header-search {
+    max-width: 300px;
+  }
+}
+
+@media (max-width: 760px) {
+  .app-header {
+    padding-inline: 12px !important;
+  }
+  .sys-name {
+    max-width: 152px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 16px;
+  }
+  .header-search {
+    min-width: 120px;
+  }
+  .header-right {
+    gap: 4px !important;
+  }
+  .header-right > :first-child,
+  .header-user > span:not(:first-of-type) {
+    display: none;
+  }
+  .audit-popup-list {
+    max-height: 52vh;
+  }
+  .audit-popup-item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .audit-popup-main {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .audit-popup-title,
+  .audit-popup-sub,
+  .audit-popup-node {
+    overflow-wrap: anywhere;
+  }
+  .audit-popup-item > .ant-btn {
+    align-self: flex-end;
+  }
+  .audit-popup-footer {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 560px) {
+  .logo {
+    margin-right: 0;
+  }
+  .sys-name {
+    display: none;
+  }
+  .header-search {
+    max-width: none;
+  }
 }
 </style>

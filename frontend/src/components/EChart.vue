@@ -38,5 +38,12 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="el" :style="{ width: '100%', height: `${props.height || 300}px` }"></div>
+  <div ref="el" class="echart-canvas" :style="{ height: `${props.height || 300}px` }"></div>
 </template>
+
+<style scoped>
+.echart-canvas {
+  width: 100%;
+  min-width: 0;
+}
+</style>

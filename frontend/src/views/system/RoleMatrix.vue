@@ -248,12 +248,12 @@ onMounted(load)
   color: #d46b08;
   background: #fff7e6;
   border: 1px solid #ffd591;
-  border-radius: 4px;
+  border-radius: var(--zgsf-radius);
   padding: 2px 8px;
   margin-bottom: 8px;
 }
 .page-desc {
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
   font-size: 13px;
   max-width: 780px;
   line-height: 1.6;
@@ -274,7 +274,7 @@ onMounted(load)
   gap: 8px;
 }
 .matrix-table :deep(.ant-table-thead > tr > th) {
-  background: #f5f7fa;
+  background: var(--zgsf-bg);
   vertical-align: middle;
 }
 .matrix-table :deep(.ant-table-cell) {

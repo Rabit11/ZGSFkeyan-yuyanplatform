@@ -1019,7 +1019,7 @@ onMounted(async () => {
   border: 1px solid #b7eb8f;
   color: #389e0d;
   padding: 8px 12px;
-  border-radius: 4px;
+  border-radius: var(--zgsf-radius);
   margin-bottom: 12px;
   font-size: 13px;
 }
@@ -1032,21 +1032,21 @@ onMounted(async () => {
 }
 .stat {
   min-width: 88px;
-  background: #fafafa;
-  border: 1px solid #f0f0f0;
-  border-radius: 4px;
+  background: var(--zgsf-fill);
+  border: 1px solid var(--zgsf-border-light);
+  border-radius: var(--zgsf-radius);
   padding: 8px 12px;
   text-align: center;
 }
 .stat .n {
   font-size: 18px;
   font-weight: 600;
-  color: #1f1f1f;
+  color: var(--zgsf-text);
   line-height: 1.2;
 }
 .stat .l {
   font-size: 12px;
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
   margin-top: 2px;
 }
 .stat.ok .n {
@@ -1073,7 +1073,7 @@ onMounted(async () => {
 .preview-meta {
   margin-bottom: 12px;
   font-size: 13px;
-  color: #595959;
+  color: var(--zgsf-text-subtle);
 }
 .preview-stats {
   margin-top: 6px;
@@ -1086,7 +1086,7 @@ onMounted(async () => {
   padding: 10px 12px;
   background: #fffbe6;
   border: 1px solid #ffe58f;
-  border-radius: 4px;
+  border-radius: var(--zgsf-radius);
   font-size: 13px;
 }
 .report-summary {

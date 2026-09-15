@@ -255,8 +255,8 @@ onMounted(load)
 </template>
 
 <style scoped>
-.stat-label { color: #8c8c8c; font-size: 13px; }
-.stat-value { color: #1f1f1f; font-size: 16px; margin-top: 4px; font-weight: 600; }
+.stat-label { color: var(--zgsf-text-secondary); font-size: 13px; }
+.stat-value { color: var(--zgsf-text); font-size: 16px; margin-top: 4px; font-weight: 600; }
 .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hint { color: #8c8c8c; }
+.hint { color: var(--zgsf-text-secondary); }
 </style>

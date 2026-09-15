@@ -43,11 +43,12 @@ function goMatrix() {
 
 <style scoped>
 .duty-bar {
-  background: #fff;
+  background: var(--zgsf-card);
   border: 1px solid var(--zgsf-border);
-  border-radius: 4px;
+  border-radius: var(--zgsf-radius-card);
   padding: 12px 16px;
   margin-bottom: 16px;
+  box-shadow: var(--zgsf-shadow);
 }
 .duty-bar__head {
   display: flex;
@@ -70,14 +71,15 @@ function goMatrix() {
   gap: 8px;
 }
 .duty-cell {
-  background: #f5f7fa;
-  border-radius: 4px;
+  background: var(--zgsf-fill);
+  border: 1px solid var(--zgsf-border-light);
+  border-radius: var(--zgsf-radius);
   padding: 8px 10px;
   min-height: 56px;
 }
 .duty-cell.mine {
-  background: #e8f1ff;
-  outline: 1px solid #91c3ff;
+  background: var(--zgsf-brand-soft);
+  border-color: #91c3ff;
 }
 .duty-cell__k {
   font-size: 12px;
@@ -97,6 +99,19 @@ function goMatrix() {
 @media (max-width: 900px) {
   .duty-bar__grid {
     grid-template-columns: 1fr 1fr;
+  }
+}
+@media (max-width: 560px) {
+  .duty-bar__head {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .duty-bar__hint {
+    flex-basis: 100%;
+    order: 3;
+  }
+  .duty-bar__grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

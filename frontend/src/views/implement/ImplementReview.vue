@@ -165,12 +165,12 @@ onMounted(load)
   margin-bottom: 16px;
 }
 .node-title {
-  color: #262626;
+  color: var(--zgsf-text);
   font-weight: 600;
 }
 .node-sub {
   margin-top: 2px;
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
   font-size: 12px;
 }
 </style>

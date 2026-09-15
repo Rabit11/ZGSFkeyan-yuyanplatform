@@ -82,20 +82,20 @@ function close() {
 <style scoped>
 .ff-hd {
   padding: 0 0 12px;
-  border-bottom: 1px solid #e8e8e8;
+  border-bottom: 1px solid var(--zgsf-border);
   margin: -8px 0 14px;
 }
 .ff-hd h2 {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-  color: #1f1f1f;
+  color: var(--zgsf-text);
   line-height: 24px;
 }
 .ff-hd p {
   margin: 4px 0 0;
   font-size: 12px;
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
   line-height: 20px;
 }
 .ff-body {
@@ -107,13 +107,13 @@ function close() {
 .srpm-now {
   margin: 0 0 14px;
   padding: 10px 12px;
-  background: #e6f4ff;
+  background: var(--zgsf-brand-soft);
   border: 1px solid #91caff;
-  border-radius: 4px;
+  border-radius: var(--zgsf-radius);
 }
 .srpm-now.empty {
-  background: #f5f7fa;
-  border-color: #e8e8e8;
+  background: var(--zgsf-bg);
+  border-color: var(--zgsf-border);
 }
 .now-hd {
   display: flex;
@@ -123,19 +123,19 @@ function close() {
 }
 .now-hd b {
   font-size: 13px;
-  color: #0048a0;
+  color: var(--zgsf-header);
   font-weight: 600;
 }
 .srpm-now.empty .now-hd b {
-  color: #595959;
+  color: var(--zgsf-text-subtle);
 }
 .now-hd .tip {
   font-size: 13px;
-  color: #262626;
+  color: var(--zgsf-text);
   font-weight: 500;
 }
 .srpm-now.empty .now-hd .tip {
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
   font-weight: 400;
 }
 
@@ -154,8 +154,8 @@ function close() {
   padding: 10px 12px;
   text-align: center;
   background: #fff2f0;
-  border: 2px solid #f5222d;
-  border-radius: 4px;
+  border: 2px solid var(--c-red);
+  border-radius: var(--zgsf-radius);
 }
 .ff-mat b {
   display: block;
@@ -168,7 +168,7 @@ function close() {
   display: block;
   margin-top: 4px;
   font-size: 12px;
-  color: #595959;
+  color: var(--zgsf-text-subtle);
   line-height: 18px;
 }
 .ff-mat-list {
@@ -181,7 +181,7 @@ function close() {
 .ff-chip {
   height: 20px;
   padding: 0 8px;
-  border-radius: 4px;
+  border-radius: var(--zgsf-radius);
   font-size: 11px;
   line-height: 20px;
   background: #fff7e6;
@@ -192,5 +192,14 @@ function close() {
   background: #f6ffed;
   color: #389e0d;
   border-color: #b7eb8f;
+}
+@media (max-width: 600px) {
+  .ff-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .ff-body {
+    padding-right: 0;
+  }
 }
 </style>

@@ -1054,9 +1054,9 @@ const listColumns = computed(() => {
 
 <style scoped>
 .page-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 16px; flex-wrap: wrap; }
-.proj-banner { background: #fff; border: 1px solid #e8e8e8; border-radius: 4px; padding: 16px 20px; margin-bottom: 16px; }
-.proj-banner b { font-size: 16px; color: #1f1f1f; }
-.proj-banner p { margin: 6px 0 0; color: #8c8c8c; font-size: 13px; }
+.proj-banner { background: var(--zgsf-card); border: 1px solid var(--zgsf-border); border-radius: var(--zgsf-radius); padding: 16px 20px; margin-bottom: 16px; }
+.proj-banner b { font-size: 16px; color: var(--zgsf-text); }
+.proj-banner p { margin: 6px 0 0; color: var(--zgsf-text-secondary); font-size: 13px; }
 .stat-row { margin-bottom: 16px; }
 .ms-card { margin-bottom: 16px; }
 .ms-card.focus { border-color: #91caff; }
@@ -1067,29 +1067,29 @@ const listColumns = computed(() => {
   gap: 8px;
   margin-top: 12px;
   padding: 12px;
-  background: #fafafa;
-  border: 1px dashed #d9d9d9;
-  border-radius: 4px;
+  background: var(--zgsf-fill);
+  border: 1px dashed var(--zgsf-border);
+  border-radius: var(--zgsf-radius);
 }
-.temp-label { color: #8c8c8c; font-size: 12px; }
-.hint { font-size: 12px; color: #8c8c8c; }
-.node-hint { margin: 0 0 12px; color: #8c8c8c; font-size: 13px; }
+.temp-label { color: var(--zgsf-text-secondary); font-size: 12px; }
+.hint { font-size: 12px; color: var(--zgsf-text-secondary); }
+.node-hint { margin: 0 0 12px; color: var(--zgsf-text-secondary); font-size: 13px; }
 
 .compile-wrap { max-width: 1100px; margin: 0 auto; }
 .form-card {
-  background: #fff;
-  border: 1px solid #e8e8e8;
-  border-radius: 8px;
+  background: var(--zgsf-card);
+  border: 1px solid var(--zgsf-border);
+  border-radius: var(--zgsf-radius-card);
   padding: 20px 24px 16px;
   margin-bottom: 16px;
 }
 .proj-head { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; margin-bottom: 16px; }
-.proj-no { font-size: 18px; font-weight: 600; color: #0064ef; line-height: 32px; }
+.proj-no { font-size: 18px; font-weight: 600; color: var(--zgsf-brand); line-height: 32px; }
 .proj-period { min-width: 280px; flex: 0 0 42%; }
-.field-label { color: #8c8c8c; font-size: 13px; margin-bottom: 8px; }
+.field-label { color: var(--zgsf-text-secondary); font-size: 13px; margin-bottom: 8px; }
 .field-block { margin-bottom: 16px; }
-.sec-title { margin: 0 0 8px; font-size: 16px; font-weight: 600; color: #0064ef; }
-.form-hint { color: #8c8c8c; font-size: 13px; margin: 0 0 16px; line-height: 1.6; }
+.sec-title { margin: 0 0 8px; font-size: 16px; font-weight: 600; color: var(--zgsf-brand); }
+.form-hint { color: var(--zgsf-text-secondary); font-size: 13px; margin: 0 0 16px; line-height: 1.6; }
 .section-top {
   display: flex;
   justify-content: space-between;
@@ -1099,7 +1099,7 @@ const listColumns = computed(() => {
 }
 .node-card {
   border: 1px solid #d6e4ff;
-  border-radius: 8px;
+  border-radius: var(--zgsf-radius-card);
   background: #fbfdff;
   padding: 14px 16px 12px;
   margin-bottom: 14px;
@@ -1117,8 +1117,8 @@ const listColumns = computed(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: #0064ef;
-  color: #fff;
+  background: var(--zgsf-brand);
+  color: var(--zgsf-card);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -1131,8 +1131,8 @@ const listColumns = computed(() => {
   margin: 14px 0 0 48px;
   padding: 12px 12px 4px;
   border: 1px dashed #b7d3ff;
-  border-radius: 6px;
-  background: #fff;
+  border-radius: var(--zgsf-radius-card);
+  background: var(--zgsf-card);
 }
 .node-dv-title {
   display: flex;
@@ -1140,10 +1140,10 @@ const listColumns = computed(() => {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 8px;
-  color: #262626;
+  color: var(--zgsf-text);
 }
 .node-dv-title span {
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
   font-size: 12px;
 }
 .node-type-chips :deep(.ant-tag) {
@@ -1152,7 +1152,7 @@ const listColumns = computed(() => {
 .node-head, .dv-head {
   display: grid;
   gap: 12px;
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
   font-size: 13px;
   margin-bottom: 8px;
   padding: 0 4px;
@@ -1171,7 +1171,7 @@ const listColumns = computed(() => {
   height: 32px;
   line-height: 32px;
   text-align: center;
-  color: #262626;
+  color: var(--zgsf-text);
   font-variant-numeric: tabular-nums;
 }
 .dv-row { grid-template-columns: 140px 1fr 160px 180px 200px 56px; }
@@ -1181,9 +1181,9 @@ const listColumns = computed(() => {
 .stat-chips, .type-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .type-chip { cursor: pointer; }
 .file-cell { min-width: 0; }
-.file-name { margin-left: 8px; color: #0064ef; font-size: 12px; word-break: break-all; }
-.file-name.empty { color: #8c8c8c; }
-.file-hint { margin-top: 4px; color: #8c8c8c; font-size: 12px; }
+.file-name { margin-left: 8px; color: var(--zgsf-brand); font-size: 12px; word-break: break-all; }
+.file-name.empty { color: var(--zgsf-text-secondary); }
+.file-hint { margin-top: 4px; color: var(--zgsf-text-secondary); font-size: 12px; }
 .dv-actions { display: flex; gap: 8px; }
 .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin: 8px 0 24px; }
 @media (max-width: 960px) {

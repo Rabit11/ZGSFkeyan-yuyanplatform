@@ -256,20 +256,20 @@ function personBlock(node: DeclareFlowStep | null | undefined) {
 <style scoped>
 .df-hd {
   padding: 0 0 12px;
-  border-bottom: 1px solid #e8e8e8;
+  border-bottom: 1px solid var(--zgsf-border);
   margin: -8px 0 16px;
 }
 .df-hd h2 {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-  color: #1f1f1f;
+  color: var(--zgsf-text);
   line-height: 24px;
 }
 .df-hd p {
   margin: 4px 0 0;
   font-size: 12px;
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
   line-height: 20px;
 }
 .df-body {
@@ -280,16 +280,16 @@ function personBlock(node: DeclareFlowStep | null | undefined) {
 .srpm-now {
   margin: 0 0 14px;
   padding: 12px 14px;
-  background: #e6f4ff;
+  background: var(--zgsf-brand-soft);
   border: 1px solid #91caff;
-  border-radius: 4px;
+  border-radius: var(--zgsf-radius);
 }
 .df-readonly-tip {
   margin: 0 0 14px;
 }
 .srpm-now.empty {
-  background: #fafafa;
-  border-color: #e8e8e8;
+  background: var(--zgsf-fill);
+  border-color: var(--zgsf-border);
 }
 .now-hd {
   display: flex;
@@ -300,12 +300,12 @@ function personBlock(node: DeclareFlowStep | null | undefined) {
 }
 .now-hd b {
   font-size: 13px;
-  color: #0048a0;
+  color: var(--zgsf-header);
   font-weight: 600;
 }
 .now-hd .tip {
   font-size: 12px;
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
 }
 .now-list {
   display: flex;
@@ -318,30 +318,30 @@ function personBlock(node: DeclareFlowStep | null | undefined) {
   gap: 10px;
   flex-wrap: wrap;
   padding: 10px 12px;
-  background: #fff;
+  background: var(--zgsf-card);
   border: 1px solid #91caff;
-  border-radius: 4px;
+  border-radius: var(--zgsf-radius);
 }
 .now-item .ttl {
   flex: 1;
   min-width: 120px;
   font-size: 14px;
   font-weight: 600;
-  color: #1f1f1f;
+  color: var(--zgsf-text);
 }
 .now-item .who {
   font-size: 12px;
-  color: #0064ef;
+  color: var(--zgsf-brand);
   font-weight: 600;
 }
 .now-item .st {
   height: 20px;
   padding: 0 8px;
-  border-radius: 4px;
+  border-radius: var(--zgsf-radius);
   font-size: 12px;
   line-height: 20px;
-  background: #e6f4ff;
-  color: #0064ef;
+  background: var(--zgsf-brand-soft);
+  color: var(--zgsf-brand);
 }
 
 .df-chart {
@@ -356,36 +356,36 @@ function personBlock(node: DeclareFlowStep | null | undefined) {
   box-sizing: border-box;
   padding: 8px 12px;
   text-align: center;
-  background: #fff;
+  background: var(--zgsf-card);
   border: 1px solid #91caff;
-  border-radius: 4px;
-  color: #262626;
+  border-radius: var(--zgsf-radius);
+  color: var(--zgsf-text);
   font-size: 13px;
   line-height: 20px;
 }
 .df-end {
-  background: #f0f5ff;
-  border-color: #0064ef;
+  background: var(--zgsf-brand-softer);
+  border-color: var(--zgsf-brand);
 }
 .df-stage {
-  background: #e6f4ff;
-  border-color: #0064ef;
+  background: var(--zgsf-brand-soft);
+  border-color: var(--zgsf-brand);
 }
 .stage-fork {
   margin-bottom: 0;
 }
 .active-branch {
-  border-color: #0064ef;
-  background: #e6f4ff;
+  border-color: var(--zgsf-brand);
+  background: var(--zgsf-brand-soft);
 }
 .muted-branch {
   border-style: dashed;
-  background: #fafafa;
-  color: #8c8c8c;
+  background: var(--zgsf-fill);
+  color: var(--zgsf-text-secondary);
 }
 .df-correction {
   border-style: dashed;
-  border-color: #faad14;
+  border-color: var(--c-yellow);
   background: #fffbe6;
 }
 .df-box b,
@@ -394,7 +394,7 @@ function personBlock(node: DeclareFlowStep | null | undefined) {
 .df-info b {
   display: block;
   font-weight: 600;
-  color: #1f1f1f;
+  color: var(--zgsf-text);
 }
 .df-box small,
 .df-red small,
@@ -402,7 +402,7 @@ function personBlock(node: DeclareFlowStep | null | undefined) {
   display: block;
   margin-top: 2px;
   font-size: 11px;
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
   line-height: 16px;
   font-weight: 400;
 }
@@ -416,7 +416,7 @@ function personBlock(node: DeclareFlowStep | null | undefined) {
 .df-mat {
   height: 20px;
   padding: 0 8px;
-  border-radius: 4px;
+  border-radius: var(--zgsf-radius);
   font-size: 11px;
   line-height: 20px;
   background: #fff7e6;
@@ -438,18 +438,18 @@ function personBlock(node: DeclareFlowStep | null | undefined) {
 }
 .df-who {
   font-size: 12px;
-  color: #0064ef;
+  color: var(--zgsf-brand);
   font-weight: 600;
   line-height: 18px;
 }
 .df-st {
   height: 18px;
   padding: 0 6px;
-  border-radius: 4px;
+  border-radius: var(--zgsf-radius);
   font-size: 11px;
   line-height: 18px;
-  background: #f5f7fa;
-  color: #8c8c8c;
+  background: var(--zgsf-bg);
+  color: var(--zgsf-text-secondary);
 }
 .df-st.approved,
 .df-st.done {
@@ -457,15 +457,15 @@ function personBlock(node: DeclareFlowStep | null | undefined) {
   color: #389e0d;
 }
 .df-st.current {
-  background: #e6f4ff;
-  color: #0064ef;
+  background: var(--zgsf-brand-soft);
+  color: var(--zgsf-brand);
 }
 .df-st.rejected {
   background: #fff1f0;
   color: #cf1322;
 }
 .df-arr {
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
   font-size: 14px;
   line-height: 18px;
   padding: 2px 0;
@@ -474,8 +474,8 @@ function personBlock(node: DeclareFlowStep | null | undefined) {
   width: 104px;
   height: 104px;
   margin: 6px 0;
-  background: #e6f4ff;
-  border: 1px solid #0064ef;
+  background: var(--zgsf-brand-soft);
+  border: 1px solid var(--zgsf-brand);
   transform: rotate(45deg);
   display: flex;
   align-items: center;
@@ -486,7 +486,7 @@ function personBlock(node: DeclareFlowStep | null | undefined) {
   width: 88px;
   transform: rotate(-45deg);
   text-align: center;
-  color: #0048a0;
+  color: var(--zgsf-header);
   font-size: 12px;
   line-height: 16px;
 }
@@ -512,7 +512,7 @@ function personBlock(node: DeclareFlowStep | null | undefined) {
 }
 .df-lab {
   font-size: 12px;
-  color: #0064ef;
+  color: var(--zgsf-brand);
   font-weight: 600;
   margin-bottom: 2px;
 }
@@ -522,17 +522,17 @@ function personBlock(node: DeclareFlowStep | null | undefined) {
   box-sizing: border-box;
   padding: 12px;
   text-align: center;
-  border-radius: 4px;
-  color: #262626;
+  border-radius: var(--zgsf-radius);
+  color: var(--zgsf-text);
   font-size: 13px;
   line-height: 20px;
 }
 .df-red {
   background: #fff2f0;
-  border: 2px solid #f5222d;
+  border: 2px solid var(--c-red);
 }
 .df-info {
-  background: #f0f5ff;
+  background: var(--zgsf-brand-softer);
   border: 1px solid #91caff;
 }
 .df-chain {
@@ -548,38 +548,38 @@ function personBlock(node: DeclareFlowStep | null | undefined) {
   gap: 8px;
   align-items: center;
   padding: 6px 10px;
-  border: 1px solid #e8e8e8;
-  border-radius: 4px;
-  background: #fff;
+  border: 1px solid var(--zgsf-border);
+  border-radius: var(--zgsf-radius);
+  background: var(--zgsf-card);
 }
 .df-step .n {
   width: 18px;
   height: 18px;
   border-radius: 9px;
-  background: #f0f2f5;
-  color: #8c8c8c;
+  background: var(--zgsf-bg);
+  color: var(--zgsf-text-secondary);
   font-size: 11px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 .df-step.current .n {
-  background: #0064ef;
-  color: #fff;
+  background: var(--zgsf-brand);
+  color: var(--zgsf-card);
 }
 .df-step.approved .n,
 .df-step.done .n {
-  background: #52c41a;
-  color: #fff;
+  background: var(--c-green);
+  color: var(--zgsf-card);
 }
 .df-step .role {
   font-size: 12px;
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
   line-height: 16px;
 }
 .df-step .name {
   font-size: 13px;
-  color: #1f1f1f;
+  color: var(--zgsf-text);
   font-weight: 600;
   line-height: 18px;
   white-space: nowrap;
@@ -589,11 +589,11 @@ function personBlock(node: DeclareFlowStep | null | undefined) {
 .done-fold {
   margin: 8px 0 0;
   padding: 6px 10px;
-  border: 1px dashed #d9d9d9;
-  border-radius: 4px;
-  background: #fafafa;
+  border: 1px dashed var(--zgsf-border);
+  border-radius: var(--zgsf-radius);
+  background: var(--zgsf-fill);
   font-size: 12px;
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
   text-align: center;
 }
 .df-open {
@@ -612,20 +612,41 @@ function personBlock(node: DeclareFlowStep | null | undefined) {
 }
 .df-result .item {
   padding: 8px 6px;
-  border: 1px solid #e8e8e8;
-  border-radius: 4px;
-  background: #fafafa;
+  border: 1px solid var(--zgsf-border);
+  border-radius: var(--zgsf-radius);
+  background: var(--zgsf-fill);
   font-size: 12px;
-  color: #262626;
+  color: var(--zgsf-text);
   line-height: 18px;
 }
 .df-result .item b {
   display: block;
   font-size: 12px;
-  color: #0064ef;
+  color: var(--zgsf-brand);
   margin-bottom: 2px;
 }
 .df-result .item.warn b {
   color: #cf1322;
+}
+@media (max-width: 600px) {
+  .df-fork,
+  .df-result,
+  .df-result.transfer-result {
+    grid-template-columns: 1fr;
+  }
+  .df-dia {
+    width: 88px;
+    height: 88px;
+  }
+  .df-dia > span {
+    width: 72px;
+  }
+  .df-step {
+    grid-template-columns: 22px minmax(0, 1fr);
+  }
+  .df-step .st {
+    grid-column: 2;
+    justify-self: start;
+  }
 }
 </style>

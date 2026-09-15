@@ -78,12 +78,12 @@ function handleChange(value: number) {
 
 <template>
   <a-select
+    class="project-select"
     :value="modelValue"
     :disabled="disabled"
     :loading="loading"
     show-search
     :placeholder="placeholder || '选择项目'"
-    style="width: 420px"
     :filter-option="(i: string, o: any) => String(o.label || '').toLowerCase().includes(String(i).toLowerCase())"
     @change="handleChange"
   >
@@ -92,3 +92,9 @@ function handleChange(value: number) {
     </a-select-option>
   </a-select>
 </template>
+
+<style scoped>
+.project-select {
+  width: min(420px, 100%);
+}
+</style>

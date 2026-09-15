@@ -383,7 +383,7 @@ function back() {
   gap: 16px;
   min-height: 40px;
   padding-bottom: 12px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--zgsf-border-light);
 }
 .mat-row:last-child {
   border-bottom: none;
@@ -396,20 +396,20 @@ function back() {
 .mat-name b {
   display: block;
   font-size: 14px;
-  color: #1f1f1f;
+  color: var(--zgsf-text);
   font-weight: 600;
 }
 .mat-fmt {
   font-size: 12px;
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
 }
 .mat-file {
   flex: 1;
   font-size: 13px;
-  color: #262626;
+  color: var(--zgsf-text);
 }
 .mat-file.empty {
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
 }
 .mat-flag {
   width: 64px;
@@ -425,5 +425,19 @@ function back() {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;
+}
+@media (max-width: 760px) {
+  .mat-row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+  }
+  .mat-name {
+    width: 100%;
+  }
+  .mat-file {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
 }
 </style>

@@ -20,8 +20,21 @@ function display() {
 </script>
 
 <template>
-  <a-tag :color="META[color()].cls" style="margin: 0">
-    <span class="color-dot" :class="`color-${color()}`" style="background: #fff; opacity: 0.9" />
+  <a-tag :color="META[color()].cls" class="status-tag">
+    <span class="color-dot" :class="`color-${color()}`" />
     {{ display() }}
   </a-tag>
 </template>
+
+<style scoped>
+.status-tag {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  font-weight: 500;
+}
+.status-tag .color-dot {
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.82);
+}
+</style>

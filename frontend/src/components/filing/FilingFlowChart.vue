@@ -54,46 +54,46 @@ function boxClass(node: FilingFlowNode) {
   box-sizing: border-box;
   padding: 10px 12px;
   text-align: center;
-  background: #fff;
-  border: 1px solid #d9d9d9;
-  border-radius: 4px;
-  color: #262626;
+  background: var(--zgsf-card);
+  border: 1px solid var(--zgsf-border);
+  border-radius: var(--zgsf-radius);
+  color: var(--zgsf-text);
   font-size: 13px;
   line-height: 20px;
 }
 .ff-box.done {
-  border-color: #52c41a;
+  border-color: var(--c-green);
   background: #f6ffed;
 }
 .ff-box.current {
-  border-color: #0064ef;
+  border-color: var(--zgsf-brand);
   border-width: 2px;
-  background: #e6f4ff;
+  background: var(--zgsf-brand-soft);
 }
 .ff-box.current-green {
-  border-color: #52c41a;
+  border-color: var(--c-green);
   background: #f6ffed;
 }
 .ff-box.pending {
-  border-color: #d9d9d9;
-  background: #fafafa;
-  color: #8c8c8c;
+  border-color: var(--zgsf-border);
+  background: var(--zgsf-fill);
+  color: var(--zgsf-text-secondary);
 }
 .ff-box.result {
-  border-color: #0064ef;
+  border-color: var(--zgsf-brand);
   border-width: 2px;
-  background: #e6f4ff;
+  background: var(--zgsf-brand-soft);
 }
 .ff-box b {
   display: block;
   font-weight: 600;
-  color: #1f1f1f;
+  color: var(--zgsf-text);
 }
 .ff-box small {
   display: block;
   margin-top: 2px;
   font-size: 11px;
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
   line-height: 16px;
 }
 .ff-person {
@@ -106,34 +106,34 @@ function boxClass(node: FilingFlowNode) {
 }
 .ff-act {
   font-size: 12px;
-  color: #595959;
+  color: var(--zgsf-text-subtle);
   line-height: 18px;
 }
 .ff-who {
   font-size: 12px;
-  color: #0064ef;
+  color: var(--zgsf-brand);
   font-weight: 600;
   line-height: 18px;
 }
 .ff-st {
   height: 18px;
   padding: 0 6px;
-  border-radius: 4px;
+  border-radius: var(--zgsf-radius);
   font-size: 11px;
   line-height: 18px;
-  background: #f5f7fa;
-  color: #8c8c8c;
+  background: var(--zgsf-bg);
+  color: var(--zgsf-text-secondary);
 }
 .ff-st.done {
   background: #f6ffed;
   color: #389e0d;
 }
 .ff-st.current {
-  background: #e6f4ff;
-  color: #0064ef;
+  background: var(--zgsf-brand-soft);
+  color: var(--zgsf-brand);
 }
 .ff-arr {
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
   font-size: 14px;
   line-height: 18px;
   padding: 2px 0;

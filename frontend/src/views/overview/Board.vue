@@ -833,7 +833,7 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 12px;
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
   font-size: 12px;
   white-space: nowrap;
 }
@@ -857,34 +857,47 @@ onMounted(async () => {
   }
 }
 @media (max-width: 900px) {
+  .board-head {
+    flex-direction: column;
+  }
+  .board-meta {
+    flex-wrap: wrap;
+    white-space: normal;
+  }
   .kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+@media (max-width: 560px) {
+  .kpi-grid,
+  .plan-grid {
+    grid-template-columns: 1fr;
+  }
+}
 .stat-card .unit {
   font-size: 13px;
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
   margin-left: 4px;
   font-weight: 400;
 }
 .stat-card .sub {
   font-size: 12px;
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
   margin-top: 4px;
 }
 .stat-card.warn-soft {
-  border-left-color: #faad14;
+  border-left-color: var(--c-yellow);
 }
 .chart-title {
   font-weight: 600;
   margin-bottom: 8px;
-  color: #262626;
+  color: var(--zgsf-text);
 }
 .fund-note,
 .cmos,
 .tf-summary {
   font-size: 12px;
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
   margin-bottom: 8px;
   line-height: 1.5;
 }
@@ -894,9 +907,9 @@ onMounted(async () => {
   gap: 12px;
 }
 .plan-block {
-  border: 1px solid #e8e8e8;
-  background: #fff;
-  border-radius: 4px;
+  border: 1px solid var(--zgsf-border);
+  background: var(--zgsf-card);
+  border-radius: var(--zgsf-radius);
   padding: 16px 12px;
   text-align: left;
   cursor: pointer;
@@ -906,12 +919,12 @@ onMounted(async () => {
   font-weight: 600;
   margin-bottom: 4px;
 }
-.plan-block.red { border-left: 4px solid #f5222d; }
-.plan-block.yellow { border-left: 4px solid #faad14; }
-.plan-block.blue { border-left: 4px solid #0064ef; }
+.plan-block.red { border-left: 4px solid var(--c-red); }
+.plan-block.yellow { border-left: 4px solid var(--c-yellow); }
+.plan-block.blue { border-left: 4px solid var(--zgsf-brand); }
 .plan-block.green { border-left: 4px solid #00c91a; }
 .empty {
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
   padding: 32px 0;
   text-align: center;
 }
@@ -926,9 +939,9 @@ onMounted(async () => {
   display: flex;
   gap: 8px;
   align-items: flex-start;
-  border: 1px solid #e8e8e8;
-  background: #fff;
-  border-radius: 4px;
+  border: 1px solid var(--zgsf-border);
+  background: var(--zgsf-card);
+  border-radius: var(--zgsf-radius);
   padding: 8px;
   text-align: left;
   cursor: pointer;
@@ -939,11 +952,11 @@ onMounted(async () => {
 }
 .risk-name {
   font-weight: 600;
-  color: #262626;
+  color: var(--zgsf-text);
 }
 .risk-sub {
   font-size: 12px;
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
 }
 @keyframes riskPulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(245, 34, 45, 0.18); }

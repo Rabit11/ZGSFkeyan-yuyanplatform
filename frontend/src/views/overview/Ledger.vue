@@ -1038,7 +1038,7 @@ onMounted(async () => {
 
 <style scoped>
 .ledger-page {
-  min-width: 980px;
+  min-width: 0;
 }
 .page-heading {
   display: flex;
@@ -1050,7 +1050,7 @@ onMounted(async () => {
 .role-notice {
   padding: 9px 14px;
   margin-bottom: 12px;
-  border-radius: 4px;
+  border-radius: var(--zgsf-radius);
   font-size: 13px;
   border: 1px solid;
   display: flex;
@@ -1066,7 +1066,7 @@ onMounted(async () => {
   display: inline-flex;
   gap: 4px;
   background: rgba(255, 255, 255, 0.65);
-  border-radius: 4px;
+  border-radius: var(--zgsf-radius);
   padding: 2px;
   border: 1px solid rgba(0, 0, 0, 0.06);
 }
@@ -1075,14 +1075,14 @@ onMounted(async () => {
   background: transparent;
   height: 28px;
   padding: 0 12px;
-  border-radius: 3px;
+  border-radius: var(--zgsf-radius);
   cursor: pointer;
-  color: #595959;
+  color: var(--zgsf-text-subtle);
   font-size: 13px;
 }
 .source-tab.active {
-  background: #0064ef;
-  color: #fff;
+  background: var(--zgsf-brand);
+  color: var(--zgsf-card);
 }
 .role-notice.orange {
   color: #ad4e00;
@@ -1091,11 +1091,11 @@ onMounted(async () => {
 }
 .role-notice.blue {
   color: #0958d9;
-  background: #e6f4ff;
+  background: var(--zgsf-brand-soft);
   border-color: #91caff;
 }
 .ledger-card {
-  border-radius: 4px;
+  border-radius: var(--zgsf-radius-card);
 }
 .toolbar {
   display: flex;
@@ -1116,9 +1116,9 @@ onMounted(async () => {
   min-height: 46px;
   padding: 9px 12px;
   margin: 0 0 12px;
-  background: #f7f9fc;
-  border: 1px solid #edf0f5;
-  border-radius: 4px;
+  background: var(--zgsf-fill);
+  border: 1px solid var(--zgsf-border);
+  border-radius: var(--zgsf-radius);
   white-space: nowrap;
 }
 .summary-bar strong {
@@ -1135,12 +1135,12 @@ onMounted(async () => {
   border-radius: 14px;
   padding: 3px 8px;
   cursor: pointer;
-  color: #595959;
+  color: var(--zgsf-text-subtle);
 }
 .color-filter:hover,
 .color-filter.active {
-  background: #fff;
-  border-color: #d9d9d9;
+  background: var(--zgsf-card);
+  border-color: var(--zgsf-border);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 .color-filter .color-dot {
@@ -1157,7 +1157,7 @@ onMounted(async () => {
   height: 55px;
 }
 .ledger-table :deep(.ant-table-cell-fix-left) {
-  background: #fff;
+  background: var(--zgsf-card);
 }
 .name-cell {
   display: flex;
@@ -1201,7 +1201,7 @@ onMounted(async () => {
 .mono {
   font-variant-numeric: tabular-nums;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
 }
 .cell-stack {
   display: flex;
@@ -1219,7 +1219,7 @@ onMounted(async () => {
   margin: 0;
 }
 .sub-text {
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
   font-size: 12px;
 }
 .tip-line {
@@ -1239,13 +1239,13 @@ onMounted(async () => {
 }
 .node-days.danger,
 .danger-text {
-  color: #f5222d;
+  color: var(--c-red);
 }
 .node-days.warning {
   color: #d48806;
 }
 .node-days.muted {
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
 }
 .brand-text {
   color: var(--zgsf-brand);
@@ -1258,14 +1258,14 @@ onMounted(async () => {
   max-width: 160px;
 }
 .empty-state {
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
   padding: 36px 0;
 }
 .column-picker {
   width: 330px;
 }
 .picker-tip {
-  color: #8c8c8c;
+  color: var(--zgsf-text-secondary);
   margin-bottom: 10px;
 }
 .column-picker :deep(.ant-checkbox-group) {
@@ -1277,8 +1277,8 @@ onMounted(async () => {
   font-weight: 600;
   margin: 8px 0 12px;
   padding-bottom: 6px;
-  border-bottom: 1px solid #f0f0f0;
-  color: #262626;
+  border-bottom: 1px solid var(--zgsf-border-light);
+  color: var(--zgsf-text);
 }
 .form-grid {
   display: grid;
@@ -1299,6 +1299,26 @@ onMounted(async () => {
   }
   .summary-bar {
     overflow-x: auto;
+  }
+}
+@media (max-width: 760px) {
+  .page-heading {
+    flex-direction: column;
+  }
+  .toolbar {
+    align-items: stretch;
+  }
+  .summary-bar {
+    white-space: normal;
+  }
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+  .span-2 {
+    grid-column: span 1;
+  }
+  .column-picker {
+    width: min(330px, calc(100vw - 40px));
   }
 }
 </style>
