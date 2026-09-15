@@ -278,11 +278,11 @@ public class DeclarationController {
             }
         }
         Map<String, String> initialPosts = new LinkedHashMap<>(body.getPosts() == null ? Map.of() : body.getPosts());
-        String version = workflow.select(body.getChannelId() == null ? null : channelMapper.selectById(body.getChannelId()));
+        String version = workflow.selectForNew(body.getChannelId() == null ? null : channelMapper.selectById(body.getChannelId()));
         initialPosts.put("__workflow", version);
         body.setPosts(initialPosts);
         body.setRemark(DECLARATION_POSTS_REMARK_PREFIX + writePostsJson(initialPosts));
-        body.setNeedApproval("report-v1".equals(version) ? 0 : 1);
+        body.setNeedApproval(version.contains("report-") ? 0 : 1);
         body.setFlowNode(workflow.nodes(version).get(0).title());
         declarationMapper.insert(body);
         savePosts(body.getId(), body.getPosts());
@@ -305,11 +305,13 @@ public class DeclarationController {
         body.setId(id);
         Map<String, String> updatedPosts = new LinkedHashMap<>(body.getPosts() == null ? loadPosts(current) : body.getPosts());
         Long updatedChannelId = body.getChannelId() == null ? current.getChannelId() : body.getChannelId();
-        String updatedVersion = workflow.select(updatedChannelId == null ? null : channelMapper.selectById(updatedChannelId));
+        String currentVersion = workflow.version(current, loadPosts(current));
+        String updatedVersion = currentVersion.startsWith("yzh-")
+                ? workflow.selectForNew(updatedChannelId == null ? null : channelMapper.selectById(updatedChannelId)) : currentVersion;
         updatedPosts.put("__workflow", updatedVersion);
         body.setPosts(updatedPosts);
         body.setRemark(DECLARATION_POSTS_REMARK_PREFIX + writePostsJson(updatedPosts));
-        body.setNeedApproval("report-v1".equals(updatedVersion) ? 0 : 1);
+        body.setNeedApproval(updatedVersion.contains("report-") ? 0 : 1);
         body.setFlowNode(workflow.nodes(updatedVersion).get(0).title());
         normalizeOrgFields(body);
         if (body.getChannelId() != null) {
@@ -427,8 +429,8 @@ public class DeclarationController {
         ProjDeclaration d = new ProjDeclaration();
         d.setId(id);
         ProjChannel channel = exist.getChannelId() == null ? null : channelMapper.selectById(exist.getChannelId());
-        String version = workflow.select(channel);
         Map<String, String> posts = loadPosts(exist);
+        String version = workflow.version(exist, posts);
         List<String> missingActors = workflow.nodes(version).stream()
                 .filter(n -> !n.roleKeys().isEmpty() && n.roleKeys().stream()
                         .noneMatch(key -> posts.get(key) != null && !posts.get(key).isBlank()))
@@ -437,7 +439,7 @@ public class DeclarationController {
         posts.put("__workflow", version);
         d.setRemark(DECLARATION_POSTS_REMARK_PREFIX + writePostsJson(posts));
         savePosts(id, posts);
-        d.setNeedApproval("report-v1".equals(version) ? 0 : 1);
+        d.setNeedApproval(version.contains("report-") ? 0 : 1);
         d.setStatus("APPROVING");
         d.setFlowNode(workflow.auditNodes(version).get(0).title());
         declarationMapper.updateById(d);

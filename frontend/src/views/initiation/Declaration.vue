@@ -162,7 +162,7 @@ function emptyForm() {
     demandOrg: '',
     leadOrgName: '中国商飞总部',
     leadWorkContent: '',
-    posts: emptyPosts(),
+    posts: { ...emptyPosts(), __workflow: 'yzh-v1' },
   }
 }
 
@@ -171,7 +171,7 @@ const { can, guard } = useWorkDuty('declare', form)
 const formMode = ref<'create' | 'edit' | 'view'>('create')
 const formReadonly = computed(() => formMode.value === 'view')
 const submitButtonText = computed(() =>
-  '校验并提交渠道审签',
+  String((form.posts as any).__workflow || '').startsWith('yzh-') ? '校验并提交负责人审核' : '校验并提交渠道审签',
 )
 
 const major1Options = majorDict.major1 as string[]
@@ -376,23 +376,10 @@ function onMajor1Change() {
 }
 
 const selectedChannel = computed(() => dictStore.channels.find((c) => c.id === form.channelId))
-function requiredPostKeyList(): PostKey[] {
-  if (!selectedChannel.value) return ALL_POST_KEYS
-  return declarationRequiredPosts({
-    channelCode: selectedChannel.value.channelCode,
-    channelName: selectedChannel.value.channelName,
-    flowNodes: selectedChannel.value.flowNodes,
-    needApproval: form.needApproval,
-    status: 'DRAFT',
-    posts: {},
-  }).map((item) => item.key as PostKey)
-}
-const visiblePostGroups = computed(() => {
-  const required = new Set(requiredPostKeyList())
-  return POST_GROUPS.map((group) => ({ ...group, posts: group.posts.filter((post) => required.has(post.key)) }))
-    .filter((group) => group.posts.length)
-})
-const requiredPostCount = computed(() => requiredPostKeyList().length)
+// yzh 成员填写：四组14岗完整展示，沿用本平台表格样式。
+function requiredPostKeyList(): PostKey[] { return ALL_POST_KEYS }
+const visiblePostGroups = computed(() => POST_GROUPS)
+const requiredPostCount = computed(() => ALL_POST_KEYS.length)
 const channelGroups = computed(() =>
   (['NATIONAL', 'LOCAL', 'COMPANY'] as const)
     .map((levelCode) => ({
@@ -458,6 +445,9 @@ function rebuildChannelMats() {
 }
 
 function onChannelChange() {
+  if (String((form.posts as any).__workflow || '').startsWith('yzh-')) {
+    ;(form.posts as any).__workflow = /无需审批|直接报备/.test(selectedChannel.value?.flowNodes || '') ? 'yzh-report-v1' : 'yzh-v1'
+  }
   pendingUploads.value = {}
   rebuildChannelMats()
 }
@@ -559,7 +549,7 @@ function resetForm(src?: any) {
   pendingUploads.value = {}
   formMats.value = []
   if (!src) {
-    Object.assign(form, base, { posts: emptyPosts() })
+    Object.assign(form, base)
     return
   }
   Object.assign(form, base, {
@@ -738,7 +728,7 @@ async function onConfirmSubmit() {
   }
   Modal.confirm({
     title: '确认提交渠道审签？',
-    content: `将按渠道「${selectedChannel.value?.channelName || ''}」的专用流程，流转至第一个审批或办理节点。`,
+    content: `将提交到本申报对应的首个审核节点；负责人本人发起也须完成负责人审核。`,
     okText: '确认提交',
     cancelText: '返回修改',
     onOk: async () => {
@@ -1179,8 +1169,8 @@ async function revoke(row: any) {
           show-icon
           style="margin-bottom: 12px"
           :message="coveredPostCount >= requiredPostCount
-            ? `候选人员已覆盖本渠道全部 ${requiredPostCount} 个申报岗位，可完成当前审签流程`
-            : `已选择 ${coveredPostCount}/${requiredPostCount} 个本渠道申报岗位`"
+            ? `候选人员已覆盖全部 ${requiredPostCount} 个申报岗位，可完成当前审签流程`
+            : `已选择 ${coveredPostCount}/${requiredPostCount} 个申报岗位`"
         />
 
         <div class="person-recommend-tip">

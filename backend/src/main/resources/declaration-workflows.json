@@ -101,6 +101,22 @@
       "contact",
       "owner",
       "archive"
+    ],
+    "yzh-v1": [
+      "contact",
+      "owner",
+      "dept",
+      "chief2",
+      "legacyFinance",
+      "legacyTech",
+      "legacyLeader",
+      "chief1",
+      "legacyHq"
+    ],
+    "yzh-report-v1": [
+      "contact",
+      "owner",
+      "archive"
     ]
   },
   "nodes": [

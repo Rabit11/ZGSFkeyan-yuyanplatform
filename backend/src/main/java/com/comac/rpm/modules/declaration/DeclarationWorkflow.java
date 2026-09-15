@@ -24,6 +24,12 @@ public class DeclarationWorkflow {
         }
     }
 
+    /** yzh 2cdd4f8 新申报规则，旧版本保留用于在途单据。 */
+    public String selectForNew(ProjChannel channel) {
+        String flow=channel==null || channel.getFlowNodes()==null ? "" : channel.getFlowNodes();
+        return flow.contains("无需审批") || flow.contains("直接报备") ? "yzh-report-v1" : "yzh-v1";
+    }
+
     public String select(ProjChannel channel) {
         if (channel == null) return "common-v1";
         String byCode = catalog.channels().get(channel.getChannelCode());
