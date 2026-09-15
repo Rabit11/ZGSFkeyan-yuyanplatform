@@ -264,7 +264,7 @@ async function saveEditor() {
       startDate: ymToFirstDay(editForm.startYm) || editForm.startDate,
       endDate: ymToFirstDay(editForm.endYm) || editForm.endDate,
     })
-    await projectApi.updateFromFormMaint(editForm.id, { ...payload, projectNo: editForm.projectNo })
+    await (userStore.isAdmin ? projectApi.updateFromFormMaint : projectApi.update)(editForm.id, { ...payload, projectNo: editForm.projectNo })
     message.success('已保存修改并写入审计日志')
     editorOpen.value = false
     await load()
@@ -514,7 +514,7 @@ onMounted(async () => {
     <div class="fm-head">
       <div>
         <h2 class="page-title">表单维护</h2>
-        <div class="page-desc">公司全部预研项目总表 / 分表。导入数据同步至项目台账，台账编辑/删除亦回写本表。</div>
+        <div class="page-desc">总部导入总表 / 分表后同步项目台账、座舱及可视化看板；请准确填写项目负责人及来源渠道。负责人从“导入项目补录”补充材料，审核通过后同步展示至项目详情和看板。</div>
       </div>
       <a-tag color="blue">{{ userStore.realName }} · {{ scopeLabel }}</a-tag>
     </div>
@@ -526,11 +526,11 @@ onMounted(async () => {
             <a-space wrap>
               <a-upload
                 :show-upload-list="false"
-                :before-upload="(f: File) => onUploadMaster(f, 'replace')"
+                :before-upload="(f: File) => onUploadMaster(f, userStore.isAdmin ? 'replace' : 'merge')"
                 accept=".xlsx,.xls"
               >
                 <a-button type="primary" :loading="uploading">
-                  <UploadOutlined />上传总表
+                  <UploadOutlined />{{ userStore.isAdmin ? '上传总表' : '上传总表（合并）' }}
                 </a-button>
               </a-upload>
               <a-upload
@@ -544,10 +544,10 @@ onMounted(async () => {
               <a-button @click="exportExcel(true)"><DownloadOutlined />导出筛选包</a-button>
             </a-space>
             <a-space>
-              <a-button type="link" danger @click="deleteSelected">
+              <a-button v-if="userStore.isAdmin" type="link" danger @click="deleteSelected">
                 <DeleteOutlined />删除所选
               </a-button>
-              <a-button danger @click="clearFormMaint">清空全部项目</a-button>
+              <a-button v-if="userStore.isAdmin" danger @click="clearFormMaint">清空全部项目</a-button>
             </a-space>
           </div>
 
@@ -641,7 +641,7 @@ onMounted(async () => {
               <template v-else-if="column.key === 'action'">
                 <a-space>
                   <a @click="openEditor(record)">查看</a>
-                  <a class="danger" @click="removeOne(record)">删除</a>
+                  <a v-if="userStore.isAdmin" class="danger" @click="removeOne(record)">删除</a>
                 </a-space>
               </template>
               <template v-else-if="column.key && column.key !== 'selection'">
@@ -662,10 +662,10 @@ onMounted(async () => {
             <a-space style="margin-bottom: 16px">
               <a-upload
                 :show-upload-list="false"
-                :before-upload="(f: File) => onUploadMaster(f, 'replace')"
+                :before-upload="(f: File) => onUploadMaster(f, userStore.isAdmin ? 'replace' : 'merge')"
                 accept=".xlsx,.xls"
               >
-                <a-button type="primary" :loading="uploading">上传总表（覆盖预览）</a-button>
+                <a-button type="primary" :loading="uploading">{{ userStore.isAdmin ? '上传总表（覆盖预览）' : '上传总表（合并预览）' }}</a-button>
               </a-upload>
               <a-upload
                 :show-upload-list="false"
@@ -833,7 +833,7 @@ onMounted(async () => {
       <div class="preview-actions">
         <a-button @click="previewOpen = false">取消</a-button>
         <a-button type="primary" :loading="loading" @click="confirmImport('merge')">合并入库</a-button>
-        <a-button danger type="primary" :loading="loading" @click="confirmImport('replace')">
+        <a-button v-if="userStore.isAdmin" danger type="primary" :loading="loading" @click="confirmImport('replace')">
           全量替换入库
         </a-button>
       </div>

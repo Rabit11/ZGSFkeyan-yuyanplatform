@@ -23,6 +23,7 @@ import { useUserStore } from '@/stores/user'
 import { usePendingStore } from '@/stores/pending'
 import { ROLE_TEXT } from '@/api/types'
 import { warningApi } from '@/api/modules'
+import { canMaintainImportedProjects } from '@/constants/permission'
 
 const route = useRoute()
 const router = useRouter()
@@ -61,6 +62,7 @@ const menus = computed(() =>
       const children = (r.children || [])
         .filter((c: any) => {
           if (c.meta?.hidden) return false
+          if (c.meta?.formMaintOnly && !canMaintainImportedProjects(userStore)) return false
           if (c.meta?.adminOnly && !userStore.isAdmin) return false
           if (c.meta?.hqOnly && !userStore.canViewBoard) return false
           return true

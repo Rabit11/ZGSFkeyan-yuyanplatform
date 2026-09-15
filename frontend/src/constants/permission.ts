@@ -65,6 +65,7 @@ export const IDENTITY_DEFS: IdentityDef[] = [
     label: '总部科研项目主管',
     roles: ['MANAGEMENT'],
     dataScope: 'COMPANY',
+    formMaintScope: 'hq',
   },
   {
     code: 'unitHead',
@@ -365,4 +366,9 @@ export function unionPostPerms(matrix: PostPermMatrix, posts: ProjectPostCode[])
     for (const perm of matrix[post] || []) set.add(perm)
   }
   return Array.from(set)
+}
+
+/** 总部表单导入入口；不扩大公司领导、财务或单位岗位的导入权限。 */
+export function canMaintainImportedProjects(user: { identityCode?: string; roles?: string[] }): boolean {
+  return (user.roles || []).includes('ADMIN') || ['admin', 'hqHead', 'hqStaff'].includes(user.identityCode || '')
 }

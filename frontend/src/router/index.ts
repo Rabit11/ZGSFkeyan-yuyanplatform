@@ -1,6 +1,6 @@
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
 import BasicLayout from '@/layouts/BasicLayout.vue'
-import { canViewVisualBoard } from '@/constants/permission'
+import { canViewVisualBoard, canMaintainImportedProjects } from '@/constants/permission'
 
 export const routes: RouteRecordRaw[] = [
   {
@@ -218,7 +218,7 @@ export const routes: RouteRecordRaw[] = [
             path: 'form-maint',
             name: 'FormMaint',
             component: () => import('@/views/system/FormMaint.vue'),
-            meta: { title: '表单维护', adminOnly: true },
+            meta: { title: '表单维护', formMaintOnly: true },
           },
           {
             path: 'work-duty',
@@ -272,6 +272,10 @@ router.beforeEach((to, _from, next) => {
     next('/login')
     return
   }
+  if (to.matched.some(r => r.meta?.formMaintOnly) && !canMaintainImportedProjects({
+    identityCode: localStorage.getItem('rpm_identity_code') || '',
+    roles: JSON.parse(localStorage.getItem('rpm_roles') || '[]'),
+  })) { next('/dashboard'); return }
   const needAdmin = to.matched.some((r) => r.meta?.adminOnly)
   if (needAdmin) {
     const roles = JSON.parse(localStorage.getItem('rpm_roles') || '[]') as string[]
