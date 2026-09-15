@@ -145,7 +145,6 @@ const maintenanceRows = computed(() => {
   ])
   pushRows('ACCEPT', '项目验收', acceptMaterialNames(p.value.levelCode))
   pushRows('TRANSFORM', '成果转化', ['成果包材料', '成果转化申请/证明材料'])
-  pushRows('ARCHIVE', '完成归档', ['项目完成归档材料', '审批归档记录'])
 
   records
     .filter((m: any) => m.fieldCode && !usedCodes.has(m.fieldCode))
@@ -205,7 +204,6 @@ const declareFlowOpts = computed<DeclareFlowOpts>(() => {
       applyNo: decl.applyNo || p.value.projectNo,
       name: decl.name || p.value.name,
       channelName: channel.value.channelName || p.value.channelName,
-      channelCode: channel.value.channelCode || (decl as any).channelCode || (p.value as any).channelCode,
       levelCode: decl.levelCode || p.value.levelCode,
       needApproval: decl.needApproval ?? 1,
       status: decl.status || inferred.status,
@@ -350,18 +348,57 @@ onMounted(async () => {
   await dictStore.loadChannels().catch(() => undefined)
   await load()
 })
+const visibleLifecycle = (nodes: LifecycleNode[]) =>
+  nodes
+    .filter((node) => node.nodeCode !== 'ARCHIVE')
+    .map((node, index) => ({ ...node, seq: index + 1 }))
+
 const lifecycle = computed<LifecycleNode[]>(() => {
-  if (data.value.lifecycle?.length) return data.value.lifecycle
+  if (data.value.lifecycle?.length) return visibleLifecycle(data.value.lifecycle)
   const transforms = Array.isArray(data.value.transforms) ? data.value.transforms : []
   const transformDone =
     transforms.length > 0 && transforms.every((t: any) => t.status === 'DONE')
-  return buildLifecycle({
-    status: p.value.status,
-    teamMembers: p.value.teamMembers,
-    createByName: p.value.createByName,
-    transformDone,
-  })
+  return visibleLifecycle(
+    buildLifecycle({
+      status: p.value.status,
+      teamMembers: p.value.teamMembers,
+      createByName: p.value.createByName,
+      transformDone,
+    }),
+  )
 })
+
+const lifecycleCycles = computed(() => {
+  const nodes = lifecycle.value
+  const group = (cycleNo: number, cycleName: string, codes: string[]) => ({
+    cycleNo,
+    cycleName,
+    nodes: codes.map((code) => nodes.find((node) => node.nodeCode === code)).filter(Boolean) as LifecycleNode[],
+  })
+  return [
+    group(1, '立项准备', ['DECLARE', 'FILING']),
+    group(2, '实施推进', ['IMPLEMENT']),
+    group(3, '验收闭环', ['ACCEPT']),
+    group(4, '成果转化', ['TRANSFORM']),
+  ].filter((cycle) => cycle.nodes.length)
+})
+
+function cycleStatus(nodes: LifecycleNode[]) {
+  if (nodes.some((node) => node.status === 'TODO')) return 'todo'
+  if (nodes.every((node) => node.status === 'DONE')) return 'done'
+  return 'pending'
+}
+
+function cycleStatusText(nodes: LifecycleNode[]) {
+  const status = cycleStatus(nodes)
+  if (status === 'done') return '已完成'
+  if (status === 'todo') return '办理中'
+  return '未开始'
+}
+
+function cycleDoneCount(nodes: LifecycleNode[]) {
+  return nodes.filter((node) => node.status === 'DONE').length
+}
 
 const channelPath = computed(
   () => data.value.channelPath || channelPathLabel({ ...channel.value, channelName: p.value.channelName }),
@@ -659,35 +696,58 @@ function nameInitial(name?: string) {
           <span class="lifecycle-hint">点击节点查看只读详情，办理请从左侧任务栏进入</span>
         </div>
         <div class="lifecycle-track">
-          <template v-for="(node, idx) in lifecycle" :key="node.nodeCode">
-            <div
-              class="life-node"
-              :class="{
-                done: node.status === 'DONE',
-                todo: node.status === 'TODO',
-                pending: node.status === 'PENDING',
-              }"
-              @click="openNode(node)"
-            >
-              <div class="node-head">
-                <span class="node-seq">{{ String(node.seq).padStart(2, '0') }}</span>
-                <span class="node-name">{{ node.nodeName }}</span>
-                <CheckCircleFilled v-if="node.status === 'DONE'" class="node-check" />
-                <a-tag v-else-if="node.status === 'TODO'" color="processing" class="node-tag">待办</a-tag>
-                <a-tag v-else class="node-tag">未办理</a-tag>
+          <template v-for="(cycle, cycleIdx) in lifecycleCycles" :key="cycle.cycleName">
+            <div class="life-cycle" :class="cycleStatus(cycle.nodes)">
+              <div class="cycle-head">
+                <div class="cycle-main-title">
+                  <span class="cycle-kicker">周期 {{ String(cycle.cycleNo).padStart(2, '0') }}</span>
+                  <div class="cycle-title">{{ cycle.cycleName }}</div>
+                </div>
+                <div class="cycle-state">
+                  <span>{{ cycleStatusText(cycle.nodes) }}</span>
+                  <em>{{ cycleDoneCount(cycle.nodes) }}/{{ cycle.nodes.length }}</em>
+                </div>
               </div>
-              <div class="node-body">
-                <div class="owner">{{ node.ownerName }}</div>
-                <template v-if="node.status === 'TODO'">
-                  <div class="sub">
-                    下一流程：{{ node.nextFlowName }}
-                    <template v-if="node.nextHandlerName"> · {{ node.nextHandlerName }}</template>
+              <div class="cycle-nodes" :class="{ merged: cycle.nodes.length > 1 }">
+                <template v-for="(node, nodeIdx) in cycle.nodes" :key="node.nodeCode">
+                  <div
+                    class="life-node"
+                    :class="{
+                      done: node.status === 'DONE',
+                      todo: node.status === 'TODO',
+                      pending: node.status === 'PENDING',
+                    }"
+                    @click="openNode(node)"
+                  >
+                    <div class="node-head">
+                      <span class="node-seq">{{ String(node.seq).padStart(2, '0') }}</span>
+                      <span class="node-name">{{ node.nodeName }}</span>
+                      <CheckCircleFilled v-if="node.status === 'DONE'" class="node-check" />
+                      <a-tag v-else-if="node.status === 'TODO'" color="processing" class="node-tag">待办</a-tag>
+                      <a-tag v-else class="node-tag">未办理</a-tag>
+                    </div>
+                    <div class="node-body">
+                      <div class="owner">{{ node.ownerName }}</div>
+                      <template v-if="node.status === 'TODO'">
+                        <div class="sub">
+                          下一流程：{{ node.nextFlowName }}
+                          <template v-if="node.nextHandlerName"> · {{ node.nextHandlerName }}</template>
+                        </div>
+                        <div class="hint">查看详情</div>
+                      </template>
+                    </div>
                   </div>
-                  <div class="hint">查看详情</div>
+                  <div
+                    v-if="nodeIdx < cycle.nodes.length - 1 && cycle.nodes.length === 1"
+                    class="node-connector inner"
+                    aria-hidden="true"
+                  >
+                    <RightOutlined />
+                  </div>
                 </template>
               </div>
             </div>
-            <div v-if="idx < lifecycle.length - 1" class="node-connector" aria-hidden="true">
+            <div v-if="cycleIdx < lifecycleCycles.length - 1" class="node-connector" aria-hidden="true">
               <RightOutlined />
             </div>
           </template>
@@ -843,7 +903,7 @@ function nameInitial(name?: string) {
                     <a-descriptions-item label="项目目标" :span="2">{{ p.goal || '—' }}</a-descriptions-item>
                     <a-descriptions-item label="年度目标" :span="2">{{ currentAnnualGoal }}</a-descriptions-item>
                     <a-descriptions-item label="项目渠道" :span="2">{{ channelPath }}</a-descriptions-item>
-                    <a-descriptions-item label="渠道全周期流程" :span="2">
+                    <a-descriptions-item label="渠道流程" :span="2">
                       <div class="flow-tags">
                         <a-tag v-for="(t, i) in channelFlowNodes" :key="i" class="flow-tag">{{ t }}</a-tag>
                         <span v-if="!channelFlowNodes.length">—</span>
@@ -1170,9 +1230,9 @@ function nameInitial(name?: string) {
   background: var(--zgsf-card);
   border: 1px solid var(--zgsf-border);
   border-radius: var(--zgsf-radius-card);
+  box-shadow: var(--zgsf-shadow);
   padding: 16px 20px 20px;
   margin-bottom: 16px;
-  box-shadow: var(--zgsf-shadow);
 }
 .header-main {
   flex: 1;
@@ -1265,19 +1325,19 @@ function nameInitial(name?: string) {
   background: var(--zgsf-card);
   border: 1px solid var(--zgsf-border);
   border-radius: var(--zgsf-radius-card);
-  padding: 16px 20px 20px;
+  padding: 14px 18px 16px;
   margin-bottom: 16px;
-  box-shadow: var(--zgsf-shadow);
+  box-shadow: 0 6px 18px rgba(0, 39, 102, 0.04);
 }
 .lifecycle-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 .lifecycle-title {
   font-weight: 600;
-  font-size: 15px;
+  font-size: 16px;
   color: var(--zgsf-text);
 }
 .lifecycle-hint {
@@ -1287,40 +1347,158 @@ function nameInitial(name?: string) {
 .lifecycle-track {
   display: flex;
   align-items: stretch;
-  gap: 0;
+  gap: 12px;
   overflow-x: auto;
+  padding-bottom: 2px;
+}
+.life-cycle {
+  position: relative;
+  flex: 1 0 220px;
+  min-width: 220px;
+  border: 1px solid var(--zgsf-border);
+  border-radius: var(--zgsf-radius-card);
+  padding: 10px;
+  background: var(--zgsf-card);
+  box-shadow: var(--zgsf-shadow);
+}
+.life-cycle:first-child {
+  flex-basis: 392px;
+  min-width: 392px;
+}
+.life-cycle.done {
+  border-color: #d9f7be;
+  background: #f6ffed;
+}
+.life-cycle.todo {
+  border-color: #91caff;
+  background: var(--zgsf-brand-softer);
+  box-shadow: 0 0 0 2px rgba(0, 100, 239, 0.08);
+}
+.life-cycle.pending {
+  background: var(--zgsf-fill);
+}
+.cycle-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.cycle-main-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.cycle-kicker {
+  font-size: 12px;
+  color: #8c8c8c;
+  line-height: 1;
+  white-space: nowrap;
+}
+.cycle-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f1f1f;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.cycle-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #595959;
+  white-space: nowrap;
+}
+.cycle-state span {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: #f0f0f0;
+  color: #595959;
+}
+.cycle-state em {
+  font-style: normal;
+  color: #8c8c8c;
+}
+.life-cycle.done .cycle-state span {
+  background: #d9f7be;
+  color: #237804;
+}
+.life-cycle.todo .cycle-state span {
+  background: #e6f4ff;
+  color: #0050b3;
+}
+.cycle-nodes {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+.cycle-nodes.merged {
+  gap: 0;
+  min-height: 72px;
+  overflow: hidden;
+  border: 1px solid #d9f7be;
+  border-radius: var(--zgsf-radius);
+  background: rgba(255, 255, 255, 0.58);
 }
 .life-node {
   flex: 1;
-  min-width: 148px;
+  min-width: 0;
   border: 1px solid var(--zgsf-border);
   border-radius: var(--zgsf-radius);
   padding: 12px 16px;
   background: var(--zgsf-fill);
   cursor: pointer;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
 }
 .life-node:hover {
   border-color: #91caff;
+  transform: translateY(-1px);
 }
 .life-node.done {
   background: #f6ffed;
   border-color: #d9f7be;
 }
 .life-node.todo {
-  background: var(--zgsf-card);
-  border: 2px solid var(--zgsf-brand);
-  box-shadow: 0 0 0 2px rgba(0, 100, 239, 0.08);
-  min-width: 176px;
+  background: #fff;
+  border: 2px solid #0064ef;
+  box-shadow: 0 6px 16px rgba(0, 100, 239, 0.1);
 }
 .life-node.pending {
-  background: var(--zgsf-fill);
+  background: #ffffff;
+}
+.cycle-nodes.merged .life-node {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+  padding: 9px 12px;
+}
+.cycle-nodes.merged .life-node + .life-node {
+  border-left: 1px solid #d9f7be;
+}
+.cycle-nodes.merged .life-node:hover {
+  background: rgba(255, 255, 255, 0.7);
+  border-color: transparent;
+  transform: none;
+}
+.cycle-nodes.merged .life-node.todo {
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: inset 0 0 0 2px rgba(0, 100, 239, 0.75);
+}
+.cycle-nodes.merged .node-head {
+  margin-bottom: 6px;
 }
 .node-head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: 7px;
+  margin-bottom: 6px;
 }
 .node-seq {
   font-size: 12px;
@@ -1361,10 +1539,13 @@ function nameInitial(name?: string) {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
+  width: 10px;
   flex-shrink: 0;
-  color: var(--zgsf-text-disabled);
+  color: #c5d7f2;
   font-size: 10px;
+}
+.node-connector.inner {
+  width: 12px;
 }
 
 .detail-card {
@@ -1402,7 +1583,7 @@ function nameInitial(name?: string) {
   background: var(--zgsf-card);
   border-radius: var(--zgsf-radius);
   padding: 10px 12px;
-  color: var(--zgsf-text-secondary);
+  color: #8c8c8c;
   min-height: 66px;
 }
 .maintenance-step-title {
@@ -1411,14 +1592,14 @@ function nameInitial(name?: string) {
 .maintenance-step-person {
   margin-top: 6px;
   font-size: 12px;
-  color: var(--zgsf-text-subtle);
+  color: #595959;
   line-height: 1.5;
   word-break: break-all;
 }
 .maintenance-step.active {
-  border-color: var(--zgsf-brand);
-  color: var(--zgsf-brand);
-  background: var(--zgsf-brand-soft);
+  border-color: #1677ff;
+  color: #1677ff;
+  background: #e6f4ff;
 }
 .maintenance-step.done {
   border-color: #b7eb8f;
@@ -1451,7 +1632,7 @@ function nameInitial(name?: string) {
 }
 .empty-text,
 .time-text {
-  color: var(--zgsf-text-secondary);
+  color: #8c8c8c;
   font-size: 12px;
 }
 .track-action {
@@ -1459,23 +1640,22 @@ function nameInitial(name?: string) {
 }
 .track-meta,
 .track-opinion {
-  color: var(--zgsf-text-secondary);
+  color: #8c8c8c;
   font-size: 12px;
   margin-top: 2px;
 }
 .panel {
-  border: 1px solid var(--zgsf-border);
-  border-radius: var(--zgsf-radius-card);
+  border: 1px solid #e8e8e8;
+  border-radius: 4px;
   padding: 16px 20px 20px;
   min-height: 280px;
-  background: var(--zgsf-card);
-  box-shadow: var(--zgsf-shadow);
+  background: #fff;
 }
 .panel-title {
   font-weight: 600;
   margin-bottom: 16px;
   font-size: 15px;
-  color: var(--zgsf-text);
+  color: #262626;
 }
 .panel-title-row {
   display: flex;
@@ -1494,7 +1674,7 @@ function nameInitial(name?: string) {
 }
 .flow-tag {
   margin: 0;
-  border-radius: var(--zgsf-radius);
+  border-radius: 4px;
 }
 .team-list {
   display: flex;
@@ -1506,7 +1686,7 @@ function nameInitial(name?: string) {
   align-items: center;
   gap: 12px;
   padding: 10px 0;
-  border-bottom: 1px solid var(--zgsf-border-light);
+  border-bottom: 1px solid #f0f0f0;
 }
 .team-item:last-child {
   border-bottom: none;
@@ -1514,9 +1694,9 @@ function nameInitial(name?: string) {
 .team-avatar {
   width: 32px;
   height: 32px;
-  border-radius: var(--zgsf-radius);
-  background: var(--zgsf-brand-soft);
-  color: var(--zgsf-brand);
+  border-radius: 4px;
+  background: #e8f1ff;
+  color: #0064ef;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1532,22 +1712,22 @@ function nameInitial(name?: string) {
 }
 .team-name {
   font-weight: 500;
-  color: var(--zgsf-text);
+  color: #262626;
   font-size: 14px;
 }
 .team-role {
   font-size: 12px;
-  color: var(--zgsf-text-secondary);
+  color: #8c8c8c;
 }
 .viz-card {
   text-align: center;
   padding: 24px 12px;
-  border: 1px solid var(--zgsf-border);
-  border-radius: var(--zgsf-radius);
+  border: 1px solid #e8e8e8;
+  border-radius: 4px;
 }
 .viz-label {
   margin-bottom: 12px;
-  color: var(--zgsf-text-secondary);
+  color: #8c8c8c;
   font-size: 13px;
 }
 @media (max-width: 1200px) {

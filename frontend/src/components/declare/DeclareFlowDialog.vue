@@ -245,7 +245,6 @@ function personBlock(node: DeclareFlowStep | null | undefined) {
         <div class="df-arr">↓</div>
         <div class="df-end">
           <b>申报办结，进入立项备案</b>
-          <small v-if="flow.offlineTail">{{ flow.offlineTail }}</small>
         </div>
       </div>
     </div>

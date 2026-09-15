@@ -7,7 +7,6 @@ import {
   splitMaterialNames,
   type LiveMaterial,
 } from '@/utils/flowLive'
-import { declarationAuditNodes, declarationNodes, declarationWorkflowId, type WorkflowSource } from '@/utils/declarationWorkflow'
 
 export type FlowStepStatus = 'current' | 'approved' | 'done' | 'pending' | 'rejected'
 
@@ -31,7 +30,6 @@ export interface DeclareFlowOpts {
   /** 本渠道申报材料（接口实时：必传项 + 上传状态） */
   materials: LiveMaterial[]
   materialSummary: string
-  offlineTail?: string
 }
 
 export const DEFAULT_APPROVAL_CHAIN = [
@@ -56,6 +54,7 @@ const NODE_ALIAS: Record<string, string> = {
 }
 
 export function firstDeclareAuditNode(_needApproval = true) {
+  // 即使渠道无需后续审签，也必须先由本项目负责人审核。
   return DECLARE_AUDIT_CHAIN[0]
 }
 
@@ -70,24 +69,6 @@ export function nextDeclareAuditNode(current?: string, needApproval = true): str
   if (i < 0) return DECLARE_AUDIT_CHAIN[0]
   if (i >= DECLARE_AUDIT_CHAIN.length - 1) return null
   return DECLARE_AUDIT_CHAIN[i + 1]
-}
-
-/** 按渠道返回实际申报链；旧数据没有流程版本时沿用兼容固定链。 */
-export function declarationTitles(decl: Partial<ProjDeclaration> & { channelCode?: string; flowNodes?: string; posts?: any }) {
-  const source: WorkflowSource = decl as any
-  const ids = declarationNodes(source)
-  return ids.map(n => n.title)
-}
-
-export function firstDeclarationAuditNode(decl: Partial<ProjDeclaration> & { channelCode?: string; flowNodes?: string; posts?: any }) {
-  return declarationAuditNodes(decl as any)[0]?.title || firstDeclareAuditNode(decl.needApproval !== 0)
-}
-
-export function nextDeclarationAuditNode(current: string | undefined, decl: Partial<ProjDeclaration> & { channelCode?: string; flowNodes?: string; posts?: any }) {
-  const chain = declarationAuditNodes(decl as any)
-  const normalized = current === '承办部门负责人' ? '项目承担部门负责人' : current
-  const i = chain.findIndex(n => n.title === normalized || n.title.includes(normalized || ''))
-  return i >= 0 && i + 1 < chain.length ? chain[i + 1].title : null
 }
 
 export const SWIM_PEOPLE_KEYS = [
@@ -144,10 +125,9 @@ function postLabel(posts: Record<string, string | undefined> | undefined, key: s
 export function buildDeclareSteps(decl: Partial<ProjDeclaration> & { steps?: DeclareFlowStep[] }): DeclareFlowStep[] {
   if (Array.isArray(decl.steps) && decl.steps.length) return decl.steps
 
-  const workflowId = declarationWorkflowId(decl as any)
-  const need = workflowId !== 'report-v1' && workflowId !== 'legacy-report-v0' && decl.needApproval !== 0
+  const need = decl.needApproval !== 0
   const posts = (decl.posts || {}) as Record<string, string | undefined>
-  const titles = declarationNodes(decl as any).map((n) => n.title)
+  const titles = need ? [...DEFAULT_APPROVAL_CHAIN] : [...REPORT_CHAIN]
 
   const assigneeByTitle: Record<string, string | undefined> = {
     项目联系人: postLabel(posts, 'contact') || decl.applicant,
@@ -156,7 +136,7 @@ export function buildDeclareSteps(decl: Partial<ProjDeclaration> & { steps?: Dec
     二级总师: postLabel(posts, 'chief2'),
     单位财务部门负责人: postLabel(posts, 'unitFinanceDirector') || postLabel(posts, 'unitFinanceSupervisor'),
     单位科技部门负责人: postLabel(posts, 'unitTechDirector'),
-    单位分管领导: postLabel(posts, 'unitLeader') || postLabel(posts, 'unitTechDirector') || postLabel(posts, 'unitTechSupervisor'),
+    单位分管领导: postLabel(posts, 'unitTechDirector'),
     一级总师: postLabel(posts, 'chief1'),
     总部科研项目处: postLabel(posts, 'hqDirector') || postLabel(posts, 'hqSupervisor'),
     线上报备归档: postLabel(posts, 'contact') || decl.applicant,
@@ -165,10 +145,8 @@ export function buildDeclareSteps(decl: Partial<ProjDeclaration> & { steps?: Dec
   const currentTitle = decl.flowNode || ''
   const status = decl.status || 'DRAFT'
 
-  const templateNodes = declarationNodes(decl as any)
-  return titles.map((title, index) => {
-    const template = templateNodes[index]
-    const label = template?.roleKeys.map((key) => posts[key]).find(Boolean) || assigneeByTitle[title]
+  return titles.map((title) => {
+    const label = assigneeByTitle[title]
     let st: FlowStepStatus = 'pending'
     if (status === 'APPROVED' || status === 'REPORTED') st = 'approved'
     else if (status === 'REJECTED' && title === '项目联系人') st = 'current'
@@ -199,7 +177,6 @@ export function buildDeclareFlowOpts(decl: Partial<ProjDeclaration> & { steps?: 
   materials?: LiveMaterial[]
   declareMaterial?: string | string[]
 }): DeclareFlowOpts {
-  const workflowId = declarationWorkflowId(decl as any)
   const need = decl.needApproval !== 0
   const nodes = buildDeclareSteps(decl)
   const contact = nodes.find((n) => /联系人/.test(n.title)) || nodes[0]
@@ -227,9 +204,6 @@ export function buildDeclareFlowOpts(decl: Partial<ProjDeclaration> & { steps?: 
     transferred: extras?.transferred === true,
     materials,
     materialSummary: materialSummary(materials) || (required.length ? required.join('、') : ''),
-    offlineTail: ['common-v1', 'xx25-v1'].includes(workflowId)
-      ? '线上审签完成后，余下流程由科技部按渠道线下办理报批。'
-      : undefined,
   }
 }
 

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 const backend = readFileSync(new URL('../backend/src/main/java/com/comac/rpm/modules/declaration/controller/DeclarationController.java', import.meta.url), 'utf8')
+const globalGuard = readFileSync(new URL('../backend/src/main/java/com/comac/rpm/common/permission/FlowAuditGuard.java', import.meta.url), 'utf8')
 const pending = readFileSync(new URL('../frontend/src/stores/pending.ts', import.meta.url), 'utf8')
 const layout = readFileSync(new URL('../frontend/src/layouts/BasicLayout.vue', import.meta.url), 'utf8')
 const mock = readFileSync(new URL('../frontend/src/mock/index.ts', import.meta.url), 'utf8')
@@ -15,6 +16,8 @@ test('后端提供不受 200 条分页限制的当前用户申报待办接口', 
 
 test('单位分管领导同时匹配部长和主管岗位', () => {
   assert.match(backend, /if \(t\.contains\("分管"\)\) \{\s*return new String\[\]\{\"unitTechDirector\", \"unitTechSupervisor\"\}/s)
+  assert.match(backend, /return new String\[\]\{\"unitHead\", \"unitStaff\"\}/)
+  assert.doesNotMatch(globalGuard, /return new String\[\]\{\"unitHead\", \"unitStaff\"\}/)
   assert.match(pending, /declarationApi\.pending\(\)/)
 })
 

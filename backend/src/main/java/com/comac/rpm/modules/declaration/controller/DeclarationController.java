@@ -11,7 +11,6 @@ import com.comac.rpm.common.UserContext;
 import com.comac.rpm.common.permission.FlowAuditGuard;
 import com.comac.rpm.common.util.SeqUtil;
 import com.comac.rpm.modules.declaration.entity.ProjDeclaration;
-import com.comac.rpm.modules.declaration.DeclarationWorkflow;
 import com.comac.rpm.modules.declaration.entity.ProjDeclarationPost;
 import com.comac.rpm.modules.declaration.entity.ProjFiling;
 import com.comac.rpm.modules.declaration.entity.ProjMaterial;
@@ -119,8 +118,6 @@ public class DeclarationController {
     private SysAuditLogMapper auditLogMapper;
     @Autowired
     private ObjectMapper objectMapper;
-    @Autowired
-    private DeclarationWorkflow workflow;
 
     @GetMapping
     public R<PageVO<ProjDeclaration>> page(
@@ -163,7 +160,7 @@ public class DeclarationController {
     }
 
     /**
-     * 当前登录用户的项目申报待办。待办按当前节点和申报岗位快照计算，
+     * 当前登录用户的项目申报待办。按当前节点和申报岗位快照计算，
      * 不受普通列表分页大小限制，并兼容迁移前保存在 remark 中的岗位快照。
      */
     @GetMapping("/pending")
@@ -189,10 +186,9 @@ public class DeclarationController {
     private boolean isCurrentUserDeclarationApprover(ProjDeclaration declaration) {
         if (declaration == null) return false;
         SysUser user = flowAuditGuard.currentUser();
-        Map<String, String> posts = declaration.getPosts() == null ? loadPosts(declaration) : declaration.getPosts();
-        DeclarationWorkflow.Node node = workflow.current(declaration, posts);
-        if (node == null) return false;
-        String[] roleKeys = node.roleKeys().toArray(String[]::new);
+        Map<String, String> posts = declaration.getPosts() == null
+                ? loadPosts(declaration) : declaration.getPosts();
+        String[] roleKeys = declarationRoleKeysForFlowNode(declaration.getFlowNode());
         List<String> labels = new ArrayList<>();
         for (String roleKey : roleKeys) {
             String label = posts.get(roleKey);
@@ -201,11 +197,10 @@ public class DeclarationController {
         if (!labels.isEmpty()) {
             return canActOnDeclarationLabels(labels, user);
         }
-        if (posts.containsKey("__workflow")) return false;
-        // 没有岗位快照时保留原有身份兜底，同时要求单位范围或申报人为本人。
+
         String identity = user.getIdentityCode() == null ? "" : user.getIdentityCode();
         boolean identityAllowed = false;
-        for (String code : FlowAuditGuard.identitiesForFlowNode(declaration.getFlowNode())) {
+        for (String code : declarationIdentitiesForFlowNode(declaration.getFlowNode())) {
             if (code.equals(identity)) {
                 identityAllowed = true;
                 break;
@@ -215,7 +210,15 @@ public class DeclarationController {
         if ("COMPANY".equalsIgnoreCase(user.getDataScope()) || "admin".equals(identity)) return true;
         if (declaration.getOrgId() != null && declaration.getOrgId().equals(user.getOrgId())) return true;
         if (declaration.getApplicantId() != null && declaration.getApplicantId().equals(user.getId())) return true;
-        return declaration.getApplicant() != null && declaration.getApplicant().trim().equals(user.getRealName());
+        return declaration.getApplicant() != null
+                && declaration.getApplicant().trim().equals(user.getRealName());
+    }
+
+    private static String[] declarationIdentitiesForFlowNode(String node) {
+        if (node != null && node.contains("分管")) {
+            return new String[]{"unitHead", "unitStaff"};
+        }
+        return FlowAuditGuard.identitiesForFlowNode(node);
     }
 
     private static boolean canActOnDeclarationLabels(List<String> labels, SysUser user) {
@@ -255,7 +258,6 @@ public class DeclarationController {
 
     /** 新建申报：根据渠道自适应生成材料栏 */
     @PostMapping
-    @Transactional
     public R<Long> create(@RequestBody ProjDeclaration body) {
         flowAuditGuard.requireActors(null, "申报信息填写", "contactLogin", "owner", "techLead", "projectPm");
         body.setId(null);
@@ -277,13 +279,6 @@ public class DeclarationController {
                 body.setLevelCode(ch.getLevelCode());
             }
         }
-        Map<String, String> initialPosts = new LinkedHashMap<>(body.getPosts() == null ? Map.of() : body.getPosts());
-        String version = workflow.select(body.getChannelId() == null ? null : channelMapper.selectById(body.getChannelId()));
-        initialPosts.put("__workflow", version);
-        body.setPosts(initialPosts);
-        body.setRemark(DECLARATION_POSTS_REMARK_PREFIX + writePostsJson(initialPosts));
-        body.setNeedApproval("report-v1".equals(version) ? 0 : 1);
-        body.setFlowNode(workflow.nodes(version).get(0).title());
         declarationMapper.insert(body);
         savePosts(body.getId(), body.getPosts());
         initMaterials(body.getId(), body.getChannelId());
@@ -303,14 +298,6 @@ public class DeclarationController {
         body.setOpinion(current.getOpinion());
         body.setApplicantId(current.getApplicantId());
         body.setId(id);
-        Map<String, String> updatedPosts = new LinkedHashMap<>(body.getPosts() == null ? loadPosts(current) : body.getPosts());
-        Long updatedChannelId = body.getChannelId() == null ? current.getChannelId() : body.getChannelId();
-        String updatedVersion = workflow.select(updatedChannelId == null ? null : channelMapper.selectById(updatedChannelId));
-        updatedPosts.put("__workflow", updatedVersion);
-        body.setPosts(updatedPosts);
-        body.setRemark(DECLARATION_POSTS_REMARK_PREFIX + writePostsJson(updatedPosts));
-        body.setNeedApproval("report-v1".equals(updatedVersion) ? 0 : 1);
-        body.setFlowNode(workflow.nodes(updatedVersion).get(0).title());
         normalizeOrgFields(body);
         if (body.getChannelId() != null) {
             ProjChannel ch = channelMapper.selectById(body.getChannelId());
@@ -409,7 +396,7 @@ public class DeclarationController {
         }
         // 以本申报实名岗位为准：项目联系人、负责人、技术负责人、项目主管均可提交。
         // 不再叠加全局任职身份校验，避免项目负责人已被点名却因账号身份映射差异无法提交。
-        requireDeclarationPostActor(id, "提交项目申报", "contact", "leader", "techLeader", "supervisor");
+        requireDeclarationPostActor(id, "提交项目负责人审核", "contact", "leader", "techLeader", "supervisor");
         if (!Arrays.asList("DRAFT", "REJECTED").contains(exist.getStatus())) {
             throw new BusinessException("仅草稿或退回的申报可以提交审核");
         }
@@ -426,20 +413,12 @@ public class DeclarationController {
         }
         ProjDeclaration d = new ProjDeclaration();
         d.setId(id);
+        // 无论填报人是谁、渠道是否还有后续审签，均先进入本项目负责人审核。
         ProjChannel channel = exist.getChannelId() == null ? null : channelMapper.selectById(exist.getChannelId());
-        String version = workflow.select(channel);
-        Map<String, String> posts = loadPosts(exist);
-        List<String> missingActors = workflow.nodes(version).stream()
-                .filter(n -> !n.roleKeys().isEmpty() && n.roleKeys().stream()
-                        .noneMatch(key -> posts.get(key) != null && !posts.get(key).isBlank()))
-                .map(DeclarationWorkflow.Node::title).toList();
-        if (!missingActors.isEmpty()) throw new BusinessException("请指定渠道节点办理人：" + String.join("、", missingActors));
-        posts.put("__workflow", version);
-        d.setRemark(DECLARATION_POSTS_REMARK_PREFIX + writePostsJson(posts));
-        savePosts(id, posts);
-        d.setNeedApproval("report-v1".equals(version) ? 0 : 1);
+        String configuredFlow = channel == null || channel.getFlowNodes() == null ? "" : channel.getFlowNodes();
+        d.setNeedApproval(configuredFlow.contains("无需审批") || configuredFlow.contains("直接报备") ? 0 : 1);
         d.setStatus("APPROVING");
-        d.setFlowNode(workflow.auditNodes(version).get(0).title());
+        d.setFlowNode(DECLARE_AUDIT_CHAIN.get(0));
         declarationMapper.updateById(d);
         return R.ok(true);
     }
@@ -452,37 +431,28 @@ public class DeclarationController {
         if (exist == null) {
             return R.fail("申报记录不存在");
         }
-        Map<String, String> posts = loadPosts(exist);
-        String version = workflow.version(exist, posts);
-        DeclarationWorkflow.Node node = workflow.current(exist, posts);
-        if (!"APPROVING".equals(exist.getStatus()) || node == null) {
+        if (!"APPROVING".equals(exist.getStatus()) || !DECLARE_AUDIT_CHAIN.contains(exist.getFlowNode())) {
             throw new BusinessException("申报当前不在有效审核节点，不能重复审核或改变流程");
         }
-        String[] actorRoleKeys = node.roleKeys().toArray(String[]::new);
-        if (posts.containsKey("__workflow") && !isCurrentUserDeclarationApprover(exist))
-            throw new BusinessException(403, "仅本节点指定办理人可以办理");
+        String[] actorRoleKeys = declarationRoleKeysForFlowNode(exist.getFlowNode());
         if (actorRoleKeys.length > 0 && hasDeclarationPostActor(exist, actorRoleKeys)) {
             // 优先按申报时选定的具体人员流转；历史数据没有岗位快照时才回退到身份校验。
             requireDeclarationPostActor(id, exist.getFlowNode() == null ? "申报审核" : exist.getFlowNode(), actorRoleKeys);
         } else {
-            flowAuditGuard.requireFlowNode(exist.getFlowNode(), null, exist.getFlowNode() == null ? "申报审核" : exist.getFlowNode());
+            if (!isCurrentUserDeclarationApprover(exist)) {
+                throw new BusinessException(403, "仅本节点对应的申报审批人可以办理");
+            }
         }
-        if (body == null || !(body.get("pass") instanceof Boolean)) throw new BusinessException("请选择通过或退回");
-        boolean pass = Boolean.TRUE.equals(body.get("pass"));
-        String evidence = body.get("evidence") == null ? "" : String.valueOf(body.get("evidence")).trim();
-        if (pass && node.evidence() && (evidence.isBlank() || body.get("opinion") == null
-                || String.valueOf(body.get("opinion")).isBlank()))
-            throw new BusinessException("请填写办理结论及评审纪要/发布文件等佐证引用");
+        boolean pass = body != null && Boolean.TRUE.equals(body.get("pass"));
         ProjDeclaration d = new ProjDeclaration();
         d.setId(id);
         if (!pass) {
             d.setStatus("REJECTED");
-            d.setFlowNode(workflow.nodes(version).get(0).title());
+            d.setFlowNode("项目联系人");
         } else {
-            List<DeclarationWorkflow.Node> chain = workflow.auditNodes(version);
-            int index = chain.indexOf(node);
-            String next = index + 1 < chain.size() ? chain.get(index + 1).title() : null;
-            boolean directReport = next == null && Integer.valueOf(0).equals(exist.getNeedApproval());
+            boolean directReport = Integer.valueOf(0).equals(exist.getNeedApproval())
+                    && "项目负责人".equals(exist.getFlowNode());
+            String next = directReport ? null : nextAuditNode(exist.getFlowNode());
             if (directReport) {
                 d.setStatus("REPORTED");
                 d.setFlowNode("线上报备归档");
@@ -500,8 +470,7 @@ public class DeclarationController {
         declarationMapper.updateById(d);
         auditLogMapper.write("DECLARATION", pass ? "APPROVE" : "REJECT", "DECLARATION", id,
                 (pass ? "项目申报审核通过：" : "项目申报审核退回：")
-                        + safe(exist.getFlowNode()) + "，" + safe(exist.getName())
-                        + "，结论：" + safe(d.getOpinion()) + "，佐证：" + safe(evidence));
+                        + safe(exist.getFlowNode()) + "，" + safe(exist.getName()));
         return R.ok(true);
     }
 
@@ -868,24 +837,12 @@ public class DeclarationController {
                 }
             }
         }
-        String remark = declaration.getRemark();
-        if (remark != null && remark.startsWith(DECLARATION_POSTS_REMARK_PREFIX)) {
-            try {
-                Map<String, String> snapshot = objectMapper.readValue(remark.substring(DECLARATION_POSTS_REMARK_PREFIX.length()), new TypeReference<Map<String, String>>() {});
-                if (snapshot != null && snapshot.get("__workflow") != null) posts.put("__workflow", snapshot.get("__workflow"));
-            } catch (Exception ignored) { }
-        }
         if (!posts.containsKey("leader")
                 && declaration.getApplicant() != null
                 && !declaration.getApplicant().isBlank()) {
             posts.put("leader", declaration.getApplicant());
         }
         return posts;
-    }
-
-    private String writePostsJson(Map<String, String> posts) {
-        try { return objectMapper.writeValueAsString(posts == null ? Map.of() : posts); }
-        catch (Exception e) { return "{}"; }
     }
 
     /** 新建/编辑申报时同步岗位人员；传入 null 表示本次不修改。 */

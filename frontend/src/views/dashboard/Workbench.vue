@@ -92,8 +92,8 @@ async function markRead(id: number) {
     </div>
 
     <a-spin :spinning="loading">
-      <a-row :gutter="16" style="margin-bottom: 16px">
-        <a-col :span="4" v-for="c in statCards" :key="c.label">
+      <a-row :gutter="[16, 16]" class="dashboard-stat-row">
+        <a-col v-for="c in statCards" :key="c.label" :xs="24" :sm="12" :lg="8" :xl="4">
           <div class="stat-card" :class="c.cls">
             <div class="label">{{ c.label }}</div>
             <div class="value">{{ c.value }}</div>
@@ -189,3 +189,21 @@ async function markRead(id: number) {
     </a-spin>
   </div>
 </template>
+
+<style scoped>
+.dashboard-stat-row {
+  margin-bottom: 16px;
+}
+.dashboard-stat-row :deep(.ant-col) {
+  min-width: 0;
+}
+.dashboard-stat-row .stat-card {
+  height: 100%;
+  min-width: 0;
+}
+.dashboard-stat-row .value {
+  font-size: 22px;
+  line-height: 30px;
+  overflow-wrap: anywhere;
+}
+</style>
