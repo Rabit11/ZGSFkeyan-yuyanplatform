@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';import path from 'node:path';import {createRequire} from 'node:module';
+const require=createRequire(path.resolve('frontend/package.json'));
+const {code}=require('esbuild').transformSync(fs.readFileSync('frontend/src/utils/supplementPublication.ts','utf8'),{loader:'ts',format:'esm'});
+const m=await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'));
+const pending={id:1,totalFund:10,supplement:{status:'IN_REVIEW',approvedSections:[]}};
+assert.equal(m.publishedProject(pending).totalFund,10);
+const p={...pending,supplement:{status:'IN_REVIEW',approvedSections:[{key:'fund',rows:[{totalFund:100,year:2026,yearBudget:40,recordType:'支出',amount:12},{totalFund:100,year:2026,yearBudget:40,recordType:'核销',amount:12}]},{key:'milestone',rows:[{_rowId:'A',name:'验收',status:'已完成'}]}]}};
+const mapped=m.publishedProject(p,2026);
+assert.equal(mapped.totalFund,100);assert.equal(mapped.expenseTotal,12);assert.equal(mapped.yearExpense,12);assert.equal(mapped.yearBudget,40);assert.equal(mapped.milestoneDone,1);
+assert.equal(m.publishedRows([p],[{projectId:1,id:7},{projectId:2,id:8}],'milestone').length,2);
+assert.equal(m.publishedRows([p],[],'milestone')[0].status,'DONE');
+assert.equal(m.publishedProject(m.publishedProject(p,2026),2026).expenseTotal,12);
+assert.equal(p.totalFund,10,'must not mutate source');
+const conflict={...p,supplement:{approvedSections:[{key:'fund',rows:[{totalFund:100},{totalFund:200}]}]}};
+assert.equal(m.publishedProject(conflict).totalFund,10);assert.equal(m.publishedProject(conflict).supplementReconciliation,true);
+console.log('PASS: pending isolation, approved totals, no duplicate seed rows or writeoff, idempotence, conflicting totals');

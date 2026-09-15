@@ -173,13 +173,11 @@ public class ProjectController {
         SysUser viewer = currentUserOrNull();
         if (orgId != null) {
             applyOrgScope(w, orgId);
-        } else if (!hasCompanyLedgerScope(viewer)) {
-            if (isProjectTeamLedgerScope(viewer)) {
-                applyProjectOwnerScope(w, viewer);
-            } else {
-                // 二级单位：本单位项目 + 本单位项目负责人名下的表单维护导入项目
-                applyOrgScope(w, UserContext.getOrgId());
-            }
+        }
+        List<Long> visibleIds = transformAccess.visibleProjectIds();
+        if (visibleIds != null) {
+            if (visibleIds.isEmpty()) w.eq(ProjInfo::getId, -1L);
+            else w.in(ProjInfo::getId, visibleIds);
         }
         w.orderByDesc(ProjInfo::getId);
         Page<ProjInfo> result = projInfoMapper.selectPage(new Page<>(page, size), w);
@@ -263,6 +261,7 @@ public class ProjectController {
             p.setCanEdit(ledgerEdit || canFormMaintOwnerMaintain(p, teamMembers, currentUser));
             p.setCanDelete(ledgerDel && !"FORM_MAINT".equals(p.getDataSource()));
         }
+        supplementService.enrichPublished(records);
     }
 
     private void applyOrgScope(LambdaQueryWrapper<ProjInfo> w, Long orgId) {

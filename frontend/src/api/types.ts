@@ -109,6 +109,8 @@ export interface ProjChannel {
 
 /* ------------------------------ 项目一本账 ------------------------------ */
 export interface ProjInfo {
+  supplement?: { status:string; pending:number; returned:number; approved:number; total:number; submitted:number; updatedAt?:string; approvedSections?:any[] }
+  supplementReconciliation?: boolean
   id: number
   projectNo: string
   name: string

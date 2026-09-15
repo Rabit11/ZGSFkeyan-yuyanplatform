@@ -1,4 +1,5 @@
 import dayjs from 'dayjs'
+import {publishedProject,publishedRows} from './supplementPublication'
 import { calcColor, remainDays } from '@/utils/color'
 import type { ColorStatus, ProjInfo } from '@/api/types'
 
@@ -250,7 +251,7 @@ export function plansFromMilestoneBoard(res: any): any[] {
 export function aggregateDashboard(query: DashboardQuery = {}, ctx: DashboardCtx) {
   const today = dayjs().format('YYYY-MM-DD')
   const year = query.year ? Number(query.year) : dayjs().year()
-  const scoped = ctx.projects || []
+  const scoped = (ctx.projects || []).map(p=>publishedProject(p,year))
   const channels = ctx.channels || []
   const projects = applyFilters(scoped, query, channels)
   const ids = new Set(projects.map((p) => p.id))
@@ -265,10 +266,10 @@ export function aggregateDashboard(query: DashboardQuery = {}, ctx: DashboardCtx
   })
   const projectTypes = [...new Set(scoped.map((p) => p.projectType).filter(Boolean) as string[])]
 
-  const milestones = (ctx.milestones || []).filter((x) => ids.has(x.projectId))
-  const plans = (ctx.plans || []).filter((x) => ids.has(x.projectId))
-  const deliverables = (ctx.deliverables || []).filter((x) => ids.has(x.projectId))
-  const transforms = (ctx.transforms || []).filter((x) => x.projectId && ids.has(x.projectId))
+  const milestones = publishedRows(projects,ctx.milestones || [],'milestone').filter((x) => ids.has(x.projectId))
+  const plans = publishedRows(projects,ctx.plans || [],'plan').filter((x) => ids.has(x.projectId))
+  const deliverables = publishedRows(projects,ctx.deliverables || [],'deliverable').filter((x) => ids.has(x.projectId))
+  const transforms = publishedRows(projects,ctx.transforms || [],'transform').filter((x) => x.projectId && ids.has(x.projectId))
   const budgets = (ctx.budgets || []).filter((x) => ids.has(x.projectId))
   const payments = (ctx.payments || []).filter((x) => ids.has(x.projectId))
   const changes = (ctx.changes || []).filter((x) => x.projectId && ids.has(x.projectId))
@@ -389,7 +390,11 @@ export function aggregateDashboard(query: DashboardQuery = {}, ctx: DashboardCtx
     if (!budget && !expense) {
       projects.forEach((p) => {
         if (!overlapsYear(p, y)) return
-        if (y === thisYear) {
+        if (p.supplement?.approvedSections?.some((s:any)=>s.key==='fund')) {
+          const actual=publishedProject(p,y)
+          budget += num(actual.yearBudget)
+          expense += num(actual.yearExpense)
+        } else if (y === thisYear) {
           budget += num(p.yearBudget)
           expense += num(p.yearExpense)
         } else {
@@ -612,6 +617,12 @@ export function aggregateDashboard(query: DashboardQuery = {}, ctx: DashboardCtx
 
   return {
     today,
+    supplementReview: {
+      projects:projects.filter(p=>p.dataSource==='FORM_MAINT'),
+      pending:projects.filter(p=>p.supplement?.status==='IN_REVIEW').length,
+      returned:projects.filter(p=>p.supplement?.status==='RETURNED').length,
+      approved:projects.filter(p=>p.supplement?.status==='APPROVED').length,
+    },
     updatedAt: dayjs().format('YYYY-MM-DD HH:mm:ss'),
     year,
     dataMode: mode,

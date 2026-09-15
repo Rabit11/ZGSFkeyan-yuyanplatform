@@ -4,6 +4,7 @@ import http from '@/api/request'
 import {downloadAuthenticatedFile} from '@/utils/authFile'
 import {message} from 'ant-design-vue'
 import ReadonlyMaterialFile from './ReadonlyMaterialFile.vue'
+import {supplementStatusText} from '@/utils/supplementPublication'
 const props=defineProps<{projectId:number;providedSections?:any[]}>()
 const sections=ref<any[]>([]),loading=ref(false),error=ref('')
 async function load(){loading.value=true;error.value='';try{sections.value=(await http.get<any[]>(`/api/supplement/${props.projectId}/approved`)).data}catch(e:any){error.value=e.message||'读取补录归集结果失败'}finally{loading.value=false}}
@@ -15,9 +16,9 @@ function visibleFields(section:any){return (section.fields||[]).filter((f:any)=>
   <a-spin :spinning="loading">
     <a-alert type="info" show-icon message="补充信息与材料" description="当前版本与已审核版本分别展示；填写和上传请从左侧导入项目补录进入。" />
     <a-alert v-if="error" type="warning" :message="error" style="margin-top:12px"><template #action><a-button @click="load">重试</a-button></template></a-alert>
-    <a-empty v-else-if="!loading&&!sections.length" description="暂无审核通过的补录信息" />
+    <a-empty v-else-if="!loading&&!sections.length" description="暂无可展示的补录信息" />
     <a-collapse v-else style="margin-top:12px">
-      <a-collapse-panel v-for="section in sections" :key="`${section.key}-${section.version}-${section.batch}`" :header="`${section.title} · ${section.status==='APPROVED'?'已审核':'当前补充信息'} · 批次 ${section.batch||1}`">
+      <a-collapse-panel v-for="section in sections" :key="`${section.key}-${section.version}-${section.batch}`" :header="`${section.title} · ${supplementStatusText[section.status]||'当前补充信息'} · 批次 ${section.batch||1}`">
         <a-table v-if="section.repeatable" size="small" :data-source="section.rows" :columns="visibleFields(section).map((f:any)=>({title:f.label,dataIndex:f.key,width:150}))" :scroll="{x:'max-content'}" :pagination="{pageSize:10}" row-key="_rowId" />
         <a-descriptions v-else size="small" :column="2" bordered>
           <a-descriptions-item v-for="field in visibleFields(section)" :key="field.key" :label="field.label">{{section.values?.[field.key]??'—'}}</a-descriptions-item>

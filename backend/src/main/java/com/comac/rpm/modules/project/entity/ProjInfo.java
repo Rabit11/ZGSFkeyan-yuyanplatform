@@ -191,4 +191,7 @@ public class ProjInfo {
     @TableField(exist = false)
     private Boolean canDelete;
 
+    @TableField(exist = false)
+    private java.util.Map<String,Object> supplement;
+
 }

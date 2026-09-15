@@ -25,6 +25,7 @@ import java.util.stream.Collectors;
 /** Imported-project supplement drafts. Submission snapshots never change business workflow status. */
 @Service
 public class SupplementService {
+ @org.springframework.beans.factory.annotation.Autowired private com.comac.rpm.modules.transform.TransformAccess publicationAccess;
  private final JdbcTemplate jdbc;
  private final ObjectMapper json;
  private final ProjInfoMapper projects;
@@ -152,7 +153,8 @@ public class SupplementService {
   return result;
  }
  public Map<String,Object> detail(Long id) {
-  ProjInfo p=project(id);SysUser u=user();read(p,u);
+  ProjInfo p=project(id);SysUser u=user();
+  if(!readable(p,u)) return publication(id);
   Map<String,Object> result=new LinkedHashMap<>(); result.put("project",p);
   ProjChannel c=channel(p);Map<String,Object> ch=new LinkedHashMap<>();ch.put("code",c==null?"":c.getChannelCode());ch.put("name",c==null?p.getChannelName():c.getChannelName());ch.put("resolved",SupplementCatalog.resolved(p,c));result.put("channel",ch);
   result.put("sections",schemas(p).stream().map(s->presentation(p,s,state(p,s,false),u)).toList());
@@ -280,9 +282,9 @@ public class SupplementService {
  public Map<String,Object> file(Long id,String fileId) {
   ProjInfo p=project(id);SysUser u=user();
   if(!readable(p,u)) {
-   boolean team=u.getEmployeeNo()!=null && !u.getEmployeeNo().isBlank() && jdbc.queryForObject("SELECT COUNT(*) FROM proj_team_member WHERE project_id=? AND employee_no=?",Integer.class,id,u.getEmployeeNo())>0;
-   boolean approvedFile=team && jdbc.queryForList("SELECT payload FROM proj_supplement_history WHERE project_id=? AND action='APPROVE'",id).stream().map(r->decode(r.get("payload"))).anyMatch(s->"APPROVED".equals(s.get("status")) && fileIds(s).contains(fileId));
-   if(!approvedFile) throw new BusinessException(403,"无权查看此附件");
+   publicationAccess.requireReadable(id);
+   boolean publishedFile=publicationEvents(List.of(id)).stream().anyMatch(r->fileIds(SupplementPublication.snapshot(r)).contains(fileId));
+   if(!publishedFile) throw new BusinessException(403,"附件尚未提交，无权查看");
   }
   List<Map<String,Object>> found=jdbc.queryForList("SELECT * FROM proj_supplement_file WHERE id=? AND project_id=?",fileId,id);
   if(found.isEmpty()) throw new BusinessException(404,"文件不存在");auditLog.write("SUPPLEMENT","DOWNLOAD","PROJECT",id,"查看或下载补录材料："+found.get(0).get("file_name"));return found.get(0);
@@ -298,7 +300,7 @@ public class SupplementService {
  public List<Map<String,Object>> approved(Long id) {
   ProjInfo p=project(id);SysUser u=user();
   boolean team=u.getEmployeeNo()!=null && !u.getEmployeeNo().isBlank() && jdbc.queryForObject("SELECT COUNT(*) FROM proj_team_member WHERE project_id=? AND employee_no=?",Integer.class,id,u.getEmployeeNo())>0;
-  if(!readable(p,u) && !team) throw new BusinessException(403,"无权查看本项目补录归集结果");
+  if(!readable(p,u) && !team) publicationAccess.requireReadable(id);
   Set<String> seen=new HashSet<>();List<Map<String,Object>> result=new ArrayList<>();
   for(Map<String,Object> record:jdbc.queryForList("SELECT * FROM proj_supplement_history WHERE project_id=? AND action='APPROVE' ORDER BY id DESC",id)) {
    String key=String.valueOf(record.get("section_key"));Map<String,Object> snapshot=decode(record.get("payload"));
@@ -307,6 +309,54 @@ public class SupplementService {
   }
   return result;
  }
+
+ private List<Map<String,Object>> publicationEvents(List<Long> ids) {
+  if(ids.isEmpty())return List.of();
+  String marks=String.join(",",Collections.nCopies(ids.size(),"?"));
+  List<Map<String,Object>> events=jdbc.queryForList("SELECT id,project_id,section_key,batch_no,version,action,actor_name,opinion,created_at,payload FROM proj_supplement_history WHERE project_id IN ("+marks+") AND action IN ('SUBMIT','APPROVE','RETURN') ORDER BY id DESC",ids.toArray());
+  for(var event:events)event.put("snapshot",decode(event.remove("payload")));
+  return events;
+ }
+ private Map<String,Object> publicationSummary(ProjInfo p,List<Map<String,Object>> events) {
+  var latest=SupplementPublication.latest(events,false);var approved=SupplementPublication.latest(events,true);
+  var active=schemas(p).stream().filter(s->!Boolean.FALSE.equals(s.get("active"))).map(s->String.valueOf(s.get("key"))).toList();
+  var statuses=latest.entrySet().stream().filter(e->active.contains(e.getKey())).map(e->String.valueOf(SupplementPublication.snapshot(e.getValue()).get("status"))).toList();
+  Map<String,Object> result=new LinkedHashMap<>();
+  result.put("status",SupplementPublication.status(statuses,active.size()));
+  result.put("pending",statuses.stream().filter(s->Set.of("UNIT_REVIEW","HQ_REVIEW").contains(s)).count());
+  result.put("returned",statuses.stream().filter("RETURNED"::equals).count());
+  result.put("approved",statuses.stream().filter("APPROVED"::equals).count());
+  result.put("total",active.size());result.put("submitted",latest.size());
+  result.put("updatedAt",events.isEmpty()?null:events.get(0).get("created_at"));
+  // Payload stays in the supplement tables. These accepted snapshots are a read projection,
+  // never a write to workflow tables or a second copy added to business totals.
+  result.put("approvedSections",approved.entrySet().stream().map(e->{
+   var s=SupplementPublication.snapshot(e.getValue());Map<String,Object> row=new LinkedHashMap<>();row.put("key",e.getKey());row.put("values",s.get("values"));row.put("rows",s.get("rows"));return row;
+  }).toList());
+  return result;
+ }
+ public void enrichPublished(List<ProjInfo> records) {
+  var imports=records.stream().filter(p->"FORM_MAINT".equals(p.getDataSource())).toList();
+  var grouped=publicationEvents(imports.stream().map(ProjInfo::getId).toList()).stream().collect(Collectors.groupingBy(e->((Number)e.get("project_id")).longValue()));
+  for(var p:imports)p.setSupplement(publicationSummary(p,grouped.getOrDefault(p.getId(),List.of())));
+ }
+ /** Project members/leadership may inspect submitted snapshots and opinions, never drafts. */
+ public Map<String,Object> publication(Long id) {
+  ProjInfo p=project(id);SysUser u=user();publicationAccess.requireReadable(id);
+  var events=publicationEvents(List.of(id));var latest=SupplementPublication.latest(events,false);
+  var sections=new ArrayList<Map<String,Object>>();
+  for(var e:latest.entrySet()) {
+   var section=presentation(p,schema(p,e.getKey()),SupplementPublication.snapshot(e.getValue()),u);
+   for(String permission:List.of("canEdit","canSubmit","canAudit","canReopen"))section.put(permission,false);
+   section.put("publishedAt",e.getValue().get("created_at"));sections.add(section);
+  }
+  var history=new ArrayList<Map<String,Object>>();
+  for(var e:events) {Map<String,Object> row=new LinkedHashMap<>();
+   row.put("id",e.get("id"));row.put("sectionKey",e.get("section_key"));row.put("batch",e.get("batch_no"));row.put("version",e.get("version"));row.put("action",e.get("action"));row.put("status",SupplementPublication.snapshot(e).get("status"));row.put("actorName",e.get("actor_name"));row.put("opinion",e.get("opinion"));row.put("createdAt",e.get("created_at"));history.add(row);
+  }
+  Map<String,Object> result=new LinkedHashMap<>();result.put("project",p);result.put("summary",publicationSummary(p,events));result.put("sections",sections);result.put("history",history);return result;
+ }
+
  public void guardSourceEdit(Long id) {
   if(jdbc.queryForObject("SELECT COUNT(*) FROM proj_supplement_section WHERE project_id=?",Integer.class,id)>0) throw new BusinessException(403,"项目已进入补录维护，源数据已锁定，请从导入项目补录办理");
  }

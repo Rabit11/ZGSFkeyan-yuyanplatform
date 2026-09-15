@@ -72,4 +72,22 @@ class TransformAccessTest {
   user.setIdentityCode("hqStaff");user.setDataScope("COMPANY");when(projects.selectList(any())).thenReturn(List.of(project));
   assertEquals(List.of(1L),access.visibleProjectIds());
  }
+ @Test void leaderMayReadButNeverGainsOwnerOrAuditRights() {
+  user.setIdentityCode("leader");user.setDataScope("SELF");when(projects.selectList(any())).thenReturn(List.of(project));
+  assertDoesNotThrow(()->access.requireReadable(1L));assertEquals(List.of(1L),access.visibleProjectIds());
+  assertThrows(BusinessException.class,()->access.requireOwner(1L));assertThrows(BusinessException.class,()->access.requireAction(1L,"audit"));
+ }
+ @Test void ordinaryMemberIsVisibleButUnrelatedSameUnitUserIsNot() {
+  user.setIdentityCode("projectPm");user.setDataScope("SELF");when(projects.selectList(any())).thenReturn(List.of(project));
+  assertEquals(List.of(),access.visibleProjectIds());
+  var member=new ProjTeamMember();member.setEmployeeNo("A007");member.setRoleCode("PROJECT_PM");when(members.selectList(any())).thenReturn(List.of(member));
+  assertEquals(List.of(1L),access.visibleProjectIds());assertThrows(BusinessException.class,()->access.requireOwner(1L));
+ }
+ @Test void acceptedSupplementMemberGetsReadOnlyAccessByExactEmployeeNumber() {
+  project.setDataSource("FORM_MAINT");user.setIdentityCode("projectPm");user.setDataScope("SELF");
+  when(jdbc.queryForList(anyString(),eq(1L))).thenReturn(List.of(java.util.Map.of("payload","{\"rows\":[{\"employeeNo\":\"B007\"}]}")));
+  assertThrows(BusinessException.class,()->access.requireReadable(1L));
+  when(jdbc.queryForList(anyString(),eq(1L))).thenReturn(List.of(java.util.Map.of("payload","{\"rows\":[{\"employeeNo\":\"A007\"}]}")));
+  assertDoesNotThrow(()->access.requireReadable(1L));assertThrows(BusinessException.class,()->access.requireOwner(1L));
+ }
 }

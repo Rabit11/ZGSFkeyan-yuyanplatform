@@ -76,6 +76,17 @@ public class TransformAccess {
  public boolean canRead(Long projectId) {
   try {requireReadable(projectId);return true;} catch(BusinessException e) {return false;}
  }
+ /** Accepted team supplements grant read association only, never owner or reviewer rights. */
+ private boolean approvedTeamMember(Long projectId,SysUser u) {
+  String emp=clean(u.getEmployeeNo());if(emp.isEmpty())return false;
+  var snapshots=jdbc.queryForList("SELECT payload FROM proj_supplement_history WHERE project_id=? AND section_key='team' AND action='APPROVE' AND JSON_UNQUOTE(JSON_EXTRACT(payload,'$.status'))='APPROVED' ORDER BY id DESC LIMIT 1",projectId);
+  if(snapshots.isEmpty())return false;
+  try {
+   var snapshot=new com.fasterxml.jackson.databind.ObjectMapper().readTree(String.valueOf(snapshots.get(0).get("payload")));
+   for(var row:snapshot.path("rows"))if(emp.equals(row.path("employeeNo").asText().trim()))return true;
+   return false;
+  } catch(Exception e) {throw new BusinessException(500,"已审核团队信息损坏，请联系管理员");}
+ }
  public void requireReadable(Long projectId) {
   var u=user();String identity=clean(u.getIdentityCode());
   var p=projectId==null?null:projects.selectById(projectId);
@@ -84,16 +95,17 @@ public class TransformAccess {
    throw new BusinessException(403,"仅管理员可只读查看失去项目关联的历史成果包");
   }
   var team=team(projectId);
-  boolean allowed="admin".equals(identity) || "COMPANY".equals(u.getDataScope()) || Set.of("hqHead","hqStaff").contains(identity)
+  boolean allowed="admin".equals(identity) || "COMPANY".equals(u.getDataScope()) || Set.of("leader","hqHead","hqStaff").contains(identity)
    || ("UNIT".equals(u.getDataScope()) || "unitHead".equals(identity)) && p.getOrgId()!=null && p.getOrgId().equals(u.getOrgId())
-   || owner(p,u,team) || Objects.equals(u.getId(),p.getCreateBy()) || team.stream().anyMatch(m->samePerson(u,m));
+   || owner(p,u,team) || Objects.equals(u.getId(),p.getCreateBy()) || team.stream().anyMatch(m->samePerson(u,m))
+   || "FORM_MAINT".equals(p.getDataSource()) && approvedTeamMember(projectId,u);
   if(!allowed) throw new BusinessException(403,"无权访问该项目成果包或材料");
  }
  public List<Long> visibleProjectIds() {
   var u=user();
   if("admin".equals(u.getIdentityCode())) return null;
   var active=projects.selectList(new LambdaQueryWrapper<ProjInfo>().eq(ProjInfo::getDeleted,0));
-  if("COMPANY".equals(u.getDataScope()) || Set.of("hqHead","hqStaff").contains(clean(u.getIdentityCode()))) return active.stream().map(ProjInfo::getId).toList();
+  if("COMPANY".equals(u.getDataScope()) || Set.of("leader","hqHead","hqStaff").contains(clean(u.getIdentityCode()))) return active.stream().map(ProjInfo::getId).toList();
   // 项目入口和文件下载复用同一判定，避免列表中的宽松姓名匹配泄露材料。
   return active.stream().map(ProjInfo::getId).filter(this::canRead).toList();
  }

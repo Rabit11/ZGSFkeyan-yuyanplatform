@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import {useVisibleRefresh} from '@/composables/useVisibleRefresh'
 import { useRoute, useRouter } from 'vue-router'
 import { ReloadOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
@@ -15,6 +16,8 @@ import { isSilentAuthError } from '@/api/request'
 import { useDictStore } from '@/stores/dict'
 import { useUserStore } from '@/stores/user'
 import EChart from '@/components/EChart.vue'
+import SupplementReviewDrawer from '@/components/SupplementReviewDrawer.vue'
+import {supplementStatusText,supplementStatusColor} from '@/utils/supplementPublication'
 import { fmtAmount, fmtAxisAmount, fmtYi } from '@/utils/format'
 import { withAllOption } from '@/utils/filterOptions'
 import {
@@ -40,6 +43,8 @@ const router = useRouter()
 const route = useRoute()
 const dictStore = useDictStore()
 const userStore = useUserStore()
+const reviewProjectId=ref<number>()
+const supplementFilter=ref<string>()
 const data = ref<any>({})
 const loading = ref(false)
 const errorMsg = ref('')
@@ -578,6 +583,8 @@ watch(
   { deep: true },
 )
 
+useVisibleRefresh(()=>load(true),()=>!loading.value&&!reviewProjectId.value)
+
 onMounted(async () => {
   await dictStore.loadChannels().catch(() => undefined)
   await dictStore.load('PROJECT_LEVEL').catch(() => undefined)
@@ -687,6 +694,22 @@ onMounted(async () => {
       <a-alert v-if="errorMsg && !denied" type="error" show-icon :message="errorMsg" style="margin-bottom: 16px" />
 
       <a-spin :spinning="loading" tip="正在加载驾驶舱…">
+        <SupplementReviewDrawer :project-id="reviewProjectId" @close="reviewProjectId=undefined" />
+        <div class="page-card" style="margin-bottom:16px;padding:16px">
+          <a-space wrap><strong>导入项目补录</strong><span>待审核 {{data.supplementReview?.pending||0}} 项</span><span>已退回 {{data.supplementReview?.returned||0}} 项</span><span>全部通过 {{data.supplementReview?.approved||0}} 项</span>
+           <a-select v-model:value="supplementFilter" allow-clear placeholder="全部审核状态" style="width:160px" :options="Object.entries(supplementStatusText).filter(([key])=>!['UNIT_REVIEW','HQ_REVIEW'].includes(key)).map(([value,label])=>({value,label}))" />
+          </a-space>
+          <p style="margin:8px 0;color:#667085">与当前筛选范围一致。统计使用已审核信息，待审核内容可查看，尚未提交的草稿不公开。</p>
+          <a-table size="small" row-key="id" :pagination="{pageSize:5}" :data-source="(data.supplementReview?.projects||[]).filter((p:any)=>!supplementFilter||p.supplement.status===supplementFilter)" :columns="[{title:'项目',dataIndex:'name'},{title:'审核状态',key:'review'},{title:'已通过栏目 / 应维护',key:'progress'},{title:'最新办理时间',key:'updated'},{title:'操作',key:'action'}]">
+           <template #bodyCell="{column,record}">
+            <a-tag v-if="column.key==='review'" :color="supplementStatusColor[record.supplement.status]">{{supplementStatusText[record.supplement.status]}}</a-tag>
+            <template v-if="column.key==='progress'">{{record.supplement.approved}} / {{record.supplement.total}}</template>
+            <template v-if="column.key==='updated'">{{record.supplement.updatedAt||'尚未提交'}}</template>
+            <a-tag v-if="column.key==='review' && record.supplementReconciliation" color="warning">经费口径待核对</a-tag>
+            <a-button v-if="column.key==='action'" type="link" size="small" @click="reviewProjectId=record.id">信息与审核情况</a-button>
+           </template>
+          </a-table>
+        </div>
         <div class="kpi-grid" style="margin-bottom: 16px">
           <div class="stat-card" :class="c.tone" v-for="c in cards" :key="c.key">
             <div class="label">{{ c.label }}</div>

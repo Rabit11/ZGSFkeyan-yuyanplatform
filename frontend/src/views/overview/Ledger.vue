@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import {useVisibleRefresh} from '@/composables/useVisibleRefresh'
 import { useRoute, useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import { message, Modal } from 'ant-design-vue'
@@ -20,6 +21,8 @@ import { fmtAmount } from '@/utils/format'
 import { withAllOption } from '@/utils/filterOptions'
 import StatusTag from '@/components/StatusTag.vue'
 import WorkDutyBar from '@/components/WorkDutyBar.vue'
+import SupplementReviewDrawer from '@/components/SupplementReviewDrawer.vue'
+import {publishedProject,supplementStatusText,supplementStatusColor} from '@/utils/supplementPublication'
 import { useWorkDuty } from '@/composables/useWorkDuty'
 import majorConfig from '@/config/major1-major2.json'
 import {
@@ -69,6 +72,8 @@ const router = useRouter()
 const dictStore = useDictStore()
 const userStore = useUserStore()
 
+const reviewProjectId = ref<number>()
+const reviewFilter = ref<string>()
 const loading = ref(false)
 const rows = ref<LedgerRow[]>([])
 const query = reactive<Record<string, any>>({
@@ -248,7 +253,7 @@ const roleNotice = computed(() => {
 const sourceTabs = [
   { value: 'ALL', label: '全部' },
   { value: 'PLATFORM', label: '平台同步' },
-  { value: 'FORM_MAINT', label: '待维护' },
+  { value: 'FORM_MAINT', label: '表单导入' },
 ] as const
 
 function setDataSource(v: string) {
@@ -301,6 +306,7 @@ const filteredRows = computed(() =>
       String(r.leadOrgId) !== unitAlias
     )
       return false
+    if (reviewFilter.value && r.supplement?.status !== reviewFilter.value) return false
     if (!matchStatusFilter(r.status, query.status)) return false
     if (query.warnColor && r.warnColor !== query.warnColor) return false
     if (query.dataSource && query.dataSource !== 'ALL') {
@@ -336,7 +342,7 @@ async function load() {
     const res = await projectApi.page({ page: 1, size: 500 })
     const list = ((res.data as any)?.records || []) as LedgerRow[]
     rows.value = list.map((row) => {
-      const next = { ...row, canEdit: row.canEdit === true, canDelete: row.dataSource !== 'FORM_MAINT' && row.canDelete === true }
+      const next = { ...publishedProject(row), canEdit: row.canEdit === true, canDelete: row.dataSource !== 'FORM_MAINT' && row.canDelete === true }
       if (next.milestonePercent == null) next.milestonePercent = milestonePercent(next)
       if (!next.leaderName) {
         next.leaderName =
@@ -344,10 +350,6 @@ async function load() {
           next.teamMembers?.find((m) => m.roleCode === 'PROJECT_LEADER' || m.roleName === '项目负责人')
             ?.userName ||
           ''
-      }
-      if (next.nationalFund == null && next.totalFund != null) {
-        next.nationalFund = Math.round(Number(next.totalFund) * 0.6 * 100) / 100
-        next.selfFund = Math.round((Number(next.totalFund) - next.nationalFund) * 100) / 100
       }
       if (
         !next.nextMilestone &&
@@ -366,6 +368,7 @@ async function load() {
 }
 
 function restoreQuery() {
+  reviewFilter.value = typeof route.query.supplementStatus === 'string' ? route.query.supplementStatus : undefined
   Object.keys(query).forEach((key) => {
     const value = route.query[key]
     if (value === undefined || value === '') {
@@ -387,6 +390,7 @@ function syncUrl() {
 }
 
 function resetFilters() {
+  reviewFilter.value = undefined
   Object.keys(query).forEach((key) => {
     if (key === 'keyword') query[key] = ''
     else if (key === 'dataSource') query[key] = 'ALL'
@@ -589,6 +593,8 @@ watch(
   },
 )
 
+useVisibleRefresh(load,()=>!loading.value&&!drawerOpen.value&&!reviewProjectId.value)
+
 onMounted(async () => {
   await Promise.all([dictStore.loadChannels(), dictStore.load('PROJECT_LEVEL')])
   restoreQuery()
@@ -744,7 +750,9 @@ onMounted(async () => {
         </a-popover>
       </div>
 
+      <SupplementReviewDrawer :project-id="reviewProjectId" @close="reviewProjectId=undefined" />
       <div class="summary-bar">
+        <a-select v-model:value="reviewFilter" allow-clear placeholder="全部补录审核状态" style="width:165px" :options="Object.entries(supplementStatusText).filter(([key])=>!['UNIT_REVIEW','HQ_REVIEW'].includes(key)).map(([value,label])=>({value,label}))" />
         <span>共 <strong>{{ filteredRows.length }}</strong> 项</span>
         <a-divider type="vertical" />
         <span>经费合计 <strong>{{ fmtAmount(totalFund) }}</strong> 万元</span>
@@ -781,7 +789,7 @@ onMounted(async () => {
                 :class="[`color-${record.warnColor || 'BLUE'}`, { pulse: record.warnColor === 'RED' }]"
               />
               <a class="project-name" :title="record.name">{{ emptyText(record.name) }}</a>
-              <a-tag v-if="record.dataSource === 'FORM_MAINT'" color="orange" class="todo-tag">待维护</a-tag>
+              <a-tag v-if="record.dataSource === 'FORM_MAINT'" class="todo-tag">表单导入</a-tag>
             </div>
           </template>
         </a-table-column>
@@ -828,7 +836,7 @@ onMounted(async () => {
           <template #default="{ record }">
             <a-space direction="vertical" :size="2">
               <a-tag :color="statusColor(record.status)">{{ statusText(record.status) }}</a-tag>
-              <a-tag v-if="record.dataSource === 'FORM_MAINT'" color="orange">待维护</a-tag>
+              <a-button v-if="record.dataSource === 'FORM_MAINT'" type="link" size="small" @click.stop="reviewProjectId=record.id"><a-tag :color="supplementStatusColor[record.supplement?.status||'DRAFT']">{{supplementStatusText[record.supplement?.status||'DRAFT']}} · 查看审核</a-tag></a-button>
             </a-space>
           </template>
         </a-table-column>
@@ -857,7 +865,7 @@ onMounted(async () => {
         <a-table-column v-if="canShow('fundSplit')" title="经费拆分（万元）" :width="160" align="right">
           <template #default="{ record }">
             <div class="cell-stack num-col">
-              <span>{{ fmtAmount(record.totalFund) }}</span>
+              <span>{{ fmtAmount(record.totalFund) }}</span><a-tag v-if="record.supplementReconciliation" color="warning">补录经费口径待核对</a-tag>
               <span class="sub-text">国拨 {{ fmtAmount(record.nationalFund) }} / 自筹 {{ fmtAmount(record.selfFund) }}</span>
             </div>
           </template>

@@ -18,6 +18,7 @@ public class SupplementController {
  public SupplementController(SupplementService service,MinioStorageService storage){this.service=service;this.storage=storage;}
  @GetMapping public R<List<Map<String,Object>>> list(@RequestParam(defaultValue="mine") String view){return R.ok(service.list(view));}
  @GetMapping("/{id}") public R<Map<String,Object>> detail(@PathVariable Long id){return R.ok(service.detail(id));}
+ @GetMapping("/{id}/publication") public R<Map<String,Object>> publication(@PathVariable Long id){return R.ok(service.publication(id));}
  @GetMapping("/{id}/approved") public R<List<Map<String,Object>>> approved(@PathVariable Long id){return R.ok(service.approved(id));}
  @PutMapping("/{id}/sections/{key}") public R<Map<String,Object>> save(@PathVariable Long id,@PathVariable String key,@RequestBody Map<String,Object> body){return R.ok(service.save(id,key,body));}
  @PostMapping("/{id}/sections/{key}/submit") public R<Map<String,Object>> submit(@PathVariable Long id,@PathVariable String key,@RequestBody Map<String,Object> body){return R.ok(service.submit(id,key,body));}
