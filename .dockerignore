@@ -1,0 +1,5 @@
+backend/target/*
+!backend/target/rpm-backend-1.0.0.jar
+frontend/node_modules
+**/*.docx
+**/*.drawio

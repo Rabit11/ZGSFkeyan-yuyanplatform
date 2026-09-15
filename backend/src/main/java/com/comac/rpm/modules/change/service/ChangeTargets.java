@@ -265,6 +265,8 @@ public class ChangeTargets {
           ch.get("channel_name"),
           ch.get("level_code"),
           targetId);
+    } else if (f.key().equals("milestoneDate")) {
+      jdbc.update("UPDATE proj_milestone SET plan_date=?, delay_count=COALESCE(delay_count,0)+1 WHERE id=?", after, targetId);
     } else {
       jdbc.update("UPDATE " + f.table() + " SET " + f.column() + "=? WHERE id=?", after, targetId);
     }

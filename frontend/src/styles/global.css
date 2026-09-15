@@ -7,7 +7,7 @@
   --zgsf-card: #ffffff;
   --zgsf-border: #e8e8e8;
   --zgsf-text: #262626;
-  --zgsf-text-secondary: #8c8c8c;
+  --zgsf-text-secondary: #737373; /* 规范建议 #8C8C8C，对比度不足 4.5:1，收深一档 */
   --zgsf-radius: 4px;
   --zgsf-control-h: 32px;
   --zgsf-table-row-h: 55px;
@@ -37,6 +37,33 @@
 
 * {
   box-sizing: border-box;
+}
+
+/* 键盘焦点可见（WCAG 2.4.7）：只在键盘导航时出现，不影响鼠标点击 */
+:focus-visible {
+  outline: 2px solid var(--zgsf-brand);
+  outline-offset: 2px;
+}
+.ant-btn:focus-visible,
+.ant-input:focus-visible,
+.ant-select-selector:focus-visible {
+  outline: 2px solid var(--zgsf-brand);
+  outline-offset: 1px;
+}
+
+/* 尊重系统“减少动态效果”设置 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* 可点击行给出手型光标 */
+.clickable-rows .ant-table-tbody > tr.ant-table-row {
+  cursor: pointer;
 }
 
 html,
@@ -116,6 +143,14 @@ body,
   height: var(--zgsf-table-row-h) !important;
   padding: 8px 16px !important;
   border-bottom: 1px solid var(--zgsf-border) !important;
+}
+/* antd 用于测量列宽的隐藏行不能继承 55px 行高，否则每张表顶部多出一条空白行 */
+.ant-table-tbody > tr.ant-table-measure-row > td,
+.ant-table-tbody > tr.ant-table-measure-row {
+  height: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  line-height: 0 !important;
 }
 .num-col {
   text-align: right;

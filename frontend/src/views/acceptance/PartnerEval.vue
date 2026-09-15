@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { partnerApi, projectApi } from '@/api/modules'
@@ -10,6 +11,7 @@ import { fmtDate } from '@/utils/format'
 import { useWorkDuty } from '@/composables/useWorkDuty'
 
 const dictStore = useDictStore()
+const route = useRoute()
 const projectId = ref<number>()
 const project = ref<any>(null)
 const rows = ref<any[]>([])
@@ -54,7 +56,7 @@ async function load() {
 onMounted(async () => {
   await dictStore.load('PARTNER_TYPE')
   const res = await projectApi.page({ page: 1, size: 1 })
-  projectId.value = (res.data as any)?.records?.[0]?.id
+  projectId.value = Number(route.query.projectId) || (res.data as any)?.records?.[0]?.id
   load()
 })
 

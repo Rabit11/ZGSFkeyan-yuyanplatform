@@ -844,3 +844,64 @@ INSERT INTO `proj_channel` (`channel_code`, `channel_name`, `level_code`, `chann
  ('DFJYJY', '大飞机研究院', 'COMPANY', '科技部', '科技发展处', '科技部', '科技发展处', '项目建议书编制→项目建议书评审→形成拟立项清单→理事会审议→立项→项目实施→项目验收', '项目申请书、学术委员会审议', '立项通知'),
  ('CLM', '大飞机先进材料创新联盟', 'COMPANY', '科技部', '技术基础处', '科技部', '技术基础处', '项目申报→申请书评审→联盟专委会审议→联盟理事会审议→报批→发布立项通知→合同书签署→项目实施→承担单位验收评审', '项目申请书', '立项建议清单及联盟专委会、理事会审议意见'),
  ('BOKH', '“中国商飞-波音”可持续航空技术研究中心项目', 'COMPANY', '科技部', '科研项目处', '科技部', '科研项目处', '项目波音指导委员会立项→项目合同签订→向公司报备→项目实施→项目承担单位验收→与总部签订拨款合同→拨款', '波音指导委员会会议纪要', '三方合同');
+
+-- 验收与实施阶段增量：保持既有经费、评估和成果转化结构。
+-- 实施阶段增量 v2（2026-09-14）：里程碑基线/滞后原因/逻辑删除、变更回写字段、基本信息审批草稿、预警按工号投递
+-- 已部署库执行一次；全新环境 schema.sql 已包含同等结构。
+SET NAMES utf8mb4;
+
+ALTER TABLE `proj_milestone`
+  ADD COLUMN `baseline_plan_date` DATE DEFAULT NULL COMMENT '基线计划日期（年度清单审核存档时固化）' AFTER `plan_date`,
+  ADD COLUMN `delay_count` INT NOT NULL DEFAULT 0 COMMENT '延期变更次数' AFTER `baseline_plan_date`,
+  ADD COLUMN `lag_measure` VARCHAR(1000) DEFAULT NULL COMMENT '滞后处理措施' AFTER `lag_reason`,
+  ADD COLUMN `audit_by` VARCHAR(64) DEFAULT NULL COMMENT '最近审核人' AFTER `lag_measure`,
+  ADD COLUMN `audit_at` DATETIME DEFAULT NULL COMMENT '最近审核时间' AFTER `audit_by`,
+  ADD COLUMN `audit_opinion` VARCHAR(1000) DEFAULT NULL COMMENT '最近审核意见' AFTER `audit_at`,
+  ADD COLUMN `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER `created_at`,
+  ADD COLUMN `deleted` TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除' AFTER `updated_at`;
+
+ALTER TABLE `proj_change`
+  ADD COLUMN `milestone_id` BIGINT DEFAULT NULL COMMENT '延期变更对应里程碑' AFTER `after_value`,
+  ADD COLUMN `new_plan_date` DATE DEFAULT NULL COMMENT '延期变更新计划日期' AFTER `milestone_id`,
+  ADD COLUMN `audit_by` VARCHAR(64) DEFAULT NULL AFTER `applicant`,
+  ADD COLUMN `audit_at` DATETIME DEFAULT NULL AFTER `audit_by`,
+  ADD COLUMN `audit_opinion` VARCHAR(1000) DEFAULT NULL AFTER `audit_at`,
+  ADD COLUMN `audit_trail` MEDIUMTEXT DEFAULT NULL COMMENT '审批记录 JSON' AFTER `audit_opinion`,
+  ADD COLUMN `deleted` TINYINT NOT NULL DEFAULT 0 AFTER `updated_at`,
+  ADD KEY `idx_milestone` (`milestone_id`);
+
+CREATE TABLE IF NOT EXISTS `proj_basic_draft` (
+  `id`             BIGINT      NOT NULL AUTO_INCREMENT,
+  `project_id`     BIGINT      NOT NULL,
+  `payload`        MEDIUMTEXT  DEFAULT NULL COMMENT '待审批的基本信息快照 JSON（含参研单位、团队）',
+  `status`         VARCHAR(32) NOT NULL DEFAULT 'DRAFT' COMMENT 'DRAFT/APPROVING/APPROVED/REJECTED',
+  `flow_node`      VARCHAR(64) DEFAULT NULL COMMENT '当前节点编码 PROJECT_LEADER/UNIT_TECH/UNIT_LEADER/HQ',
+  `flow_node_name` VARCHAR(128) DEFAULT NULL,
+  `submitted_by`   VARCHAR(64) DEFAULT NULL,
+  `submitted_no`   VARCHAR(32) DEFAULT NULL,
+  `submitted_at`   DATETIME    DEFAULT NULL,
+  `audit_trail`    MEDIUMTEXT  DEFAULT NULL COMMENT '审批记录 JSON',
+  `created_at`     DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`     DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted`        TINYINT     NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  KEY `idx_project` (`project_id`),
+  KEY `idx_status` (`status`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '项目基本信息审批草稿';
+
+ALTER TABLE `sys_warning`
+  ADD COLUMN `receiver_nos` VARCHAR(500) DEFAULT NULL COMMENT '接收人工号，逗号分隔' AFTER `receiver`,
+  ADD COLUMN `read_nos` VARCHAR(1000) DEFAULT NULL COMMENT '已读人工号，逗号分隔' AFTER `is_read`;
+
+-- 生产迁移仅调整结构，保留所有现有账号和角色。
+
+ALTER TABLE `proj_acceptance_item`
+  ADD COLUMN `file_name` VARCHAR(255) DEFAULT NULL COMMENT '文件名' AFTER `file_url`,
+  ADD COLUMN `file_size` BIGINT DEFAULT NULL COMMENT '文件大小' AFTER `file_name`,
+  ADD COLUMN `uploaded_by` VARCHAR(64) DEFAULT NULL COMMENT '上传人' AFTER `file_size`,
+  ADD COLUMN `uploaded_at` DATETIME DEFAULT NULL COMMENT '上传时间' AFTER `uploaded_by`;
+
+ALTER TABLE `proj_acceptance`
+  ADD COLUMN `current_node` VARCHAR(64) DEFAULT NULL COMMENT '当前审批节点' AFTER `status`,
+  ADD COLUMN `latest_opinion` VARCHAR(1000) DEFAULT NULL COMMENT '最近流程意见' AFTER `current_node`,
+  ADD COLUMN `latest_process_at` DATETIME DEFAULT NULL COMMENT '最近流程处理时间' AFTER `latest_opinion`;

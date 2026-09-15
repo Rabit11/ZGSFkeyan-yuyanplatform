@@ -3,6 +3,7 @@ package com.comac.rpm.modules.acceptance.controller;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.comac.rpm.common.BusinessException;
 import com.comac.rpm.common.R;
+import com.comac.rpm.common.UserContext;
 import com.comac.rpm.common.permission.FlowAuditGuard;
 import com.comac.rpm.modules.acceptance.entity.ProjAcceptance;
 import com.comac.rpm.modules.acceptance.entity.ProjAcceptanceItem;
@@ -29,10 +30,14 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 项目验收：前置条件强校验 + 表单智能分级锁定
@@ -70,9 +75,11 @@ public class AcceptanceController {
     private ProjEvaluationMapper evaluationMapper;
     @Autowired
     private FlowAuditGuard flowAuditGuard;
+    @Autowired private com.comac.rpm.modules.file.MinioStorageService storage;
 
     @GetMapping("/{projectId}")
     public R<Map<String, Object>> detail(@PathVariable("projectId") Long projectId) {
+        flowAuditGuard.requireProjectAccess(projectId);
         ProjInfo p = projectMapper.selectById(projectId);
         if (p == null) {
             throw new BusinessException("项目不存在");
@@ -85,6 +92,7 @@ public class AcceptanceController {
             acc.setStatus("NOT_STARTED");
             acc.setAcceptLevel(resolveLevel(p.getLevelCode()));
             acc.setExpertReview("NATIONAL".equals(p.getLevelCode()) ? 1 : 0);
+            acc.setCurrentNode("ACCEPT_GATE");
             acceptanceMapper.insert(acc);
         }
         List<ProjAcceptanceItem> items = itemMapper.selectList(
@@ -96,7 +104,67 @@ public class AcceptanceController {
         Map<String, Object> map = new HashMap<>();
         map.putAll(toMap(acc));
         map.put("items", items);
+        boolean editable = "NOT_STARTED".equals(acc.getStatus()) || "ACCEPT_APPLY".equals(acc.getCurrentNode());
+        map.put("canEditMaterials", editable && canAct(projectId, "owner", "techLead", "projectPm", "contactLogin"));
+        map.put("canSubmit", editable && canAct(projectId, "owner"));
+        String[] auditActors = auditActors(acc.getCurrentNode());
+        map.put("canAudit", !"DONE".equals(acc.getStatus()) && auditActors.length > 0
+                && canAct(projectId, auditActors)
+                && !FlowAuditGuard.matchesOwnerLabel(p.getOwnerName(), flowAuditGuard.currentUser()));
         return R.ok(map);
+    }
+
+    /**
+     * 验收办结结果包：供后续成果验收 / 成果转化模块读取。
+     * 本接口只暴露项目验收形成的结论、材料与已交付成果入口，不反向办理后续模块业务。
+     */
+    @GetMapping("/{projectId}/result-handoff")
+    public R<Map<String, Object>> resultHandoff(@PathVariable("projectId") Long projectId) {
+        flowAuditGuard.requireProjectAccess(projectId);
+        ProjInfo p = projectMapper.selectById(projectId);
+        if (p == null) {
+            throw new BusinessException("项目不存在");
+        }
+        ProjAcceptance acc = acceptanceMapper.selectOne(
+                new LambdaQueryWrapper<ProjAcceptance>().eq(ProjAcceptance::getProjectId, projectId).last("LIMIT 1"));
+        List<ProjAcceptanceItem> materials = acc == null ? Collections.emptyList() : itemMapper.selectList(
+                new LambdaQueryWrapper<ProjAcceptanceItem>().eq(ProjAcceptanceItem::getAcceptanceId, acc.getId())
+                        .orderByAsc(ProjAcceptanceItem::getLevelCode)
+                        .orderByAsc(ProjAcceptanceItem::getSort));
+        List<ProjDeliverable> deliverables = deliverableMapper.selectList(
+                new LambdaQueryWrapper<ProjDeliverable>().eq(ProjDeliverable::getProjectId, projectId)
+                        .orderByAsc(ProjDeliverable::getId));
+        List<ProjDeliverable> delivered = deliverables.stream()
+                .filter(d -> "DELIVERED".equals(d.getStatus()))
+                .collect(Collectors.toList());
+        Set<String> achievementNos = new LinkedHashSet<>();
+        for (ProjDeliverable d : delivered) {
+            if (d.getAchievementNo() != null && !d.getAchievementNo().isBlank()) {
+                achievementNos.add(d.getAchievementNo());
+            }
+        }
+
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("projectId", p.getId());
+        m.put("projectNo", p.getProjectNo());
+        m.put("projectName", p.getName());
+        m.put("acceptanceId", acc == null ? null : acc.getId());
+        m.put("acceptLevel", acc == null ? null : acc.getAcceptLevel());
+        m.put("acceptanceStatus", acc == null ? "NOT_STARTED" : acc.getStatus());
+        m.put("currentNode", acc == null ? "ACCEPT_GATE" : acc.getCurrentNode());
+        m.put("acceptedAt", acc == null ? null : acc.getFinishAt());
+        m.put("conclusion", acc == null ? null : acc.getConclusion());
+        m.put("partnerDueDate", acc == null ? null : acc.getPartnerDueDate());
+        m.put("resultReady", acc != null && "DONE".equals(acc.getStatus()));
+        m.put("nextBiz", "ACHIEVEMENT_ACCEPTANCE");
+        m.put("nextBizStatus", acc != null && "DONE".equals(acc.getStatus()) ? "READY" : "WAIT_ACCEPTANCE_DONE");
+        m.put("materialCount", materials.size());
+        m.put("deliverableCount", deliverables.size());
+        m.put("deliveredDeliverableCount", delivered.size());
+        m.put("acceptanceMaterials", materials);
+        m.put("deliveredDeliverables", delivered);
+        m.put("achievementNos", achievementNos);
+        return R.ok(m);
     }
 
     /**
@@ -104,8 +172,7 @@ public class AcceptanceController {
      */
     @PostMapping("/{projectId}/check")
     public R<List<Map<String, Object>>> check(@PathVariable("projectId") Long projectId) {
-        flowAuditGuard.requireProjectRelated(projectId, "owner", "techLead", "projectPm", "contactLogin",
-                "unitHead", "hqHead", "hqStaff");
+        flowAuditGuard.requireProjectAccess(projectId);
         List<Map<String, Object>> result = new ArrayList<>();
 
         long msOpen = milestoneMapper.selectCount(new LambdaQueryWrapper<ProjMilestone>()
@@ -145,6 +212,7 @@ public class AcceptanceController {
     }
 
     /** 提交验收申请：前置校验未通过则拒绝 */
+    @org.springframework.transaction.annotation.Transactional
     @PostMapping("/{projectId}/submit")
     public R<Boolean> submit(@PathVariable("projectId") Long projectId) {
         flowAuditGuard.requireActors(projectId, "提交验收申请", "owner");
@@ -155,7 +223,30 @@ public class AcceptanceController {
             }
         }
         ProjAcceptance acc = getOrCreate(projectId);
+        if (!"NOT_STARTED".equals(acc.getStatus()) && !"ACCEPT_APPLY".equals(acc.getCurrentNode())) {
+            throw new BusinessException(409, "验收已提交或已办结，不可重复提交");
+        }
+        List<ProjAcceptanceItem> missing = itemMapper.selectList(new LambdaQueryWrapper<ProjAcceptanceItem>()
+                .eq(ProjAcceptanceItem::getAcceptanceId, acc.getId())
+                .eq(ProjAcceptanceItem::getRequired, 1)
+                .eq(ProjAcceptanceItem::getLocked, 0)
+                .and(q -> q.isNull(ProjAcceptanceItem::getFileUrl).or()
+                        .eq(ProjAcceptanceItem::getStatus, "EMPTY")));
+        if (!missing.isEmpty()) {
+            StringBuilder names = new StringBuilder();
+            for (ProjAcceptanceItem item : missing) {
+                if (names.length() > 0) {
+                    names.append("、");
+                }
+                names.append(item.getMaterialName());
+            }
+            throw new BusinessException("验收材料未齐套，请先上传：" + names);
+        }
+        for(var material:itemMapper.selectList(new LambdaQueryWrapper<ProjAcceptanceItem>().eq(ProjAcceptanceItem::getAcceptanceId,acc.getId()).eq(ProjAcceptanceItem::getRequired,1).eq(ProjAcceptanceItem::getLocked,0)))requireStoredMaterial(material.getFileUrl());
         acc.setStatus("APPLYING");
+        acc.setCurrentNode("ACCEPT_UNIT_REVIEW");
+        acc.setLatestOpinion("项目团队已提交验收申请");
+        acc.setLatestProcessAt(LocalDateTime.now());
         acc.setApplyAt(LocalDateTime.now());
         acceptanceMapper.updateById(acc);
         return R.ok(true);
@@ -167,6 +258,8 @@ public class AcceptanceController {
         flowAuditGuard.requireActors(projectId, "上传验收材料", "owner", "techLead", "projectPm", "contactLogin");
         String fieldCode = body.get("fieldCode") == null ? null : String.valueOf(body.get("fieldCode"));
         ProjAcceptance acc = getOrCreate(projectId);
+        if(!"NOT_STARTED".equals(acc.getStatus()) && !"ACCEPT_APPLY".equals(acc.getCurrentNode()))throw new BusinessException(403,"审核中或已办结材料不可修改");
+        requireStoredMaterial(body.get("fileUrl"));
         ProjAcceptanceItem it = itemMapper.selectOne(new LambdaQueryWrapper<ProjAcceptanceItem>()
                 .eq(ProjAcceptanceItem::getAcceptanceId, acc.getId())
                 .eq(ProjAcceptanceItem::getFieldCode, fieldCode)
@@ -177,28 +270,93 @@ public class AcceptanceController {
         if (Integer.valueOf(1).equals(it.getLocked())) {
             throw new BusinessException("该验收层级不适用，页面已锁定");
         }
+        String fileName = body.get("fileName") == null ? it.getMaterialName() + ".pdf" : String.valueOf(body.get("fileName"));
+        it.setFileName(fileName);
         it.setFileUrl(body.get("fileUrl") == null ? "/files/" + fieldCode + ".pdf" : String.valueOf(body.get("fileUrl")));
+        if (body.get("fileSize") != null) {
+            try {
+                it.setFileSize(Long.valueOf(String.valueOf(body.get("fileSize"))));
+            } catch (NumberFormatException ignored) {
+                it.setFileSize(null);
+            }
+        }
+        it.setUploadedBy(UserContext.getUsername());
+        it.setUploadedAt(LocalDateTime.now());
         it.setStatus("UPLOADED");
         itemMapper.updateById(it);
         return R.ok(true);
     }
 
-    /** 验收办结：开启 30 天协作单位评价倒计时 */
+    /** 验收审核：按当前节点通过/退回，终审通过后办结并开启 30 天协作单位评价倒计时 */
+    @org.springframework.transaction.annotation.Transactional
     @PostMapping("/{projectId}/audit")
     public R<Boolean> audit(@PathVariable("projectId") Long projectId, @RequestBody(required = false) Map<String, Object> body) {
-        flowAuditGuard.requireActors(projectId, "验收审核办结", "unitHead", "hqHead", "hqStaff");
+        flowAuditGuard.requireActors(projectId, "验收审核", "unitHead", "hqHead", "hqStaff", "chief1", "chief2");
         boolean pass = body != null && Boolean.TRUE.equals(body.get("pass"));
+        String opinion = body == null || body.get("opinion") == null ? null : String.valueOf(body.get("opinion")).trim();
+        if (!pass && (opinion == null || opinion.isEmpty())) {
+            throw new BusinessException("退回时必须填写意见");
+        }
         ProjAcceptance acc = getOrCreate(projectId);
-        if (pass) {
+        if ("DONE".equals(acc.getStatus())) {
+            throw new BusinessException("项目验收已办结");
+        }
+        String node = acc.getCurrentNode() == null ? "ACCEPT_UNIT_REVIEW" : acc.getCurrentNode();
+        String[] actors = auditActors(node);
+        if (actors.length == 0) throw new BusinessException(409, "当前节点尚未进入审核，请先提交申请");
+        flowAuditGuard.requireActors(projectId,"当前验收节点审核",actors);
+        if(FlowAuditGuard.matchesOwnerLabel(projectMapper.selectById(projectId).getOwnerName(),flowAuditGuard.currentUser()))throw new BusinessException(403,"不能审核本人提交的项目");
+        String requestedNode = body == null || body.get("nodeCode") == null ? null : String.valueOf(body.get("nodeCode"));
+        if (requestedNode != null && !requestedNode.isEmpty() && !requestedNode.equals(node)) {
+            throw new BusinessException("验收流程节点已变化，请刷新后重试");
+        }
+        if (!pass) {
+            acc.setStatus("APPLYING");
+            acc.setCurrentNode("ACCEPT_APPLY");
+            acc.setLatestOpinion("退回：" + opinion);
+            acc.setLatestProcessAt(LocalDateTime.now());
+            acceptanceMapper.updateById(acc);
+            return R.ok(true);
+        }
+        for (Map<String, Object> c : check(projectId).getData()) {
+            if (!Boolean.TRUE.equals(c.get("passed"))) {
+                throw new BusinessException("验收门槛已变化：" + c.get("label") + "，" + c.get("message"));
+            }
+        }
+
+        if ("ACCEPT_UNIT_REVIEW".equals(node)) {
+            if (Integer.valueOf(1).equals(acc.getExpertReview())) {
+                acc.setStatus("ACCEPTING");
+                acc.setCurrentNode("ACCEPT_CHIEF_REVIEW");
+            } else {
+                acc.setStatus("ACCEPTING");
+                acc.setCurrentNode("ACCEPT_HQ_TECH");
+            }
+            acc.setLatestOpinion(emptyDefault(opinion, "初审通过"));
+        } else if ("ACCEPT_CHIEF_REVIEW".equals(node)) {
+            acc.setStatus("ACCEPTING");
+            acc.setCurrentNode("ACCEPT_HQ_TECH");
+            acc.setLatestOpinion(emptyDefault(opinion, "责任总师技术复核通过"));
+        } else if ("ACCEPT_HQ_TECH".equals(node)) {
+            acc.setStatus("ACCEPTING");
+            acc.setCurrentNode("ACCEPT_HQ_FINAL");
+            acc.setLatestOpinion(emptyDefault(opinion, "技术初审通过"));
+        } else if ("ACCEPT_HQ_FINAL".equals(node)) {
             acc.setStatus("DONE");
+            acc.setCurrentNode("ACCEPT_ARCHIVE");
             acc.setFinishAt(LocalDateTime.now());
             acc.setPartnerDueDate(LocalDate.now().plusDays(30));
-            if (body.get("opinion") != null) {
-                acc.setConclusion(String.valueOf(body.get("opinion")));
-            }
-        } else {
+            acc.setConclusion(emptyDefault(opinion, "验收合格，同意办结"));
+            acc.setLatestOpinion(acc.getConclusion());
+            syncProjectAcceptState(projectId, acc);
+        } else if ("ACCEPT_APPLY".equals(node)) {
             acc.setStatus("APPLYING");
+            acc.setCurrentNode("ACCEPT_UNIT_REVIEW");
+            acc.setLatestOpinion(emptyDefault(opinion, "补正材料已提交"));
+        } else {
+            throw new BusinessException("当前节点不可审核：" + node);
         }
+        acc.setLatestProcessAt(LocalDateTime.now());
         acceptanceMapper.updateById(acc);
         return R.ok(true);
     }
@@ -279,6 +437,9 @@ public class AcceptanceController {
         m.put("projectId", a.getProjectId());
         m.put("acceptLevel", a.getAcceptLevel());
         m.put("status", a.getStatus());
+        m.put("currentNode", a.getCurrentNode());
+        m.put("latestOpinion", a.getLatestOpinion());
+        m.put("latestProcessAt", a.getLatestProcessAt());
         m.put("applyAt", a.getApplyAt());
         m.put("finishAt", a.getFinishAt());
         m.put("conclusion", a.getConclusion());
@@ -295,4 +456,48 @@ public class AcceptanceController {
         m.put("message", message);
         return m;
     }
+
+    private String emptyDefault(String value, String defaultValue) {
+        return value == null || value.trim().isEmpty() ? defaultValue : value.trim();
+    }
+
+    private void syncProjectAcceptState(Long projectId, ProjAcceptance acc) {
+        ProjInfo p = projectMapper.selectById(projectId);
+        if (p == null) {
+            return;
+        }
+        p.setAcceptStatus(levelName(acc.getAcceptLevel()));
+        if ("COMPANY".equals(acc.getAcceptLevel())) {
+            p.setStatus("COMPANY_ACCEPTED");
+        } else if ("NATIONAL".equals(acc.getAcceptLevel()) || "LOCAL".equals(acc.getAcceptLevel())) {
+            p.setStatus("GOV_ACCEPTED");
+        }
+        projectMapper.updateById(p);
+    }
+    private boolean canAct(Long projectId, String... actors) {
+        try {
+            flowAuditGuard.requireActors(projectId, "验收办理", actors);
+            return true;
+        } catch (BusinessException denied) {
+            return false;
+        }
+    }
+
+    private String[] auditActors(String node) {
+        return switch (node == null ? "" : node) {
+            case "ACCEPT_UNIT_REVIEW" -> new String[]{"unitHead"};
+            case "ACCEPT_CHIEF_REVIEW" -> new String[]{"chief1", "chief2"};
+            case "ACCEPT_HQ_TECH" -> new String[]{"hqStaff"};
+            case "ACCEPT_HQ_FINAL" -> new String[]{"hqHead"};
+            default -> new String[0];
+        };
+    }
+
+    private void requireStoredMaterial(Object address) {
+        String url=java.util.Objects.toString(address,"");String prefix="/api/files/download?objectKey=";
+        if(!url.startsWith(prefix))throw new BusinessException(400,"请先上传真实验收附件");
+        String key=java.net.URLDecoder.decode(url.substring(prefix.length()),java.nio.charset.StandardCharsets.UTF_8);
+        if(!key.startsWith("acceptance/") || key.contains("..") || !storage.exists(key))throw new BusinessException(400,"验收附件不存在或不属于验收材料");
+    }
+
 }

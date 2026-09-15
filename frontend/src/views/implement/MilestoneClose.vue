@@ -2,7 +2,8 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
-import { PlusOutlined } from '@ant-design/icons-vue'
+import { PlusOutlined, UploadOutlined } from '@ant-design/icons-vue'
+import dayjs from 'dayjs'
 import { deliverableApi, fileApi, milestoneApi, projectApi } from '@/api/modules'
 import { isSilentAuthError } from '@/api/request'
 import { dueText, fmtDate } from '@/utils/format'
@@ -41,7 +42,13 @@ type CompileNode = {
   id?: number
   name: string
   planDate: string
+  /** 已销项：名称/日期均不可改 */
   locked: boolean
+  /** 计划日期已进入基线：日期只能走延期变更 */
+  dateLocked: boolean
+  /** 后端给出的可删除标记（DOING、无佐证、未进基线） */
+  canDelete: boolean
+  budget?: number
 }
 
 type CompileDv = {
@@ -63,13 +70,24 @@ const milestones = ref<any[]>([])
 const deliverables = ref<any[]>([])
 const focusId = ref<number>()
 const evidenceName = reactive<Record<string, string>>({})
-const evidenceFile = reactive<Record<string, { fileName?: string; fileUrl?: string }>>({})
+const evidenceFile = reactive<Record<string, { fileName?: string; fileUrl?: string; objectKey?: string }>>({})
+/** a-upload 的文件列表（按里程碑 id） */
+const evidenceList = reactive<Record<string, any[]>>({})
+/** 编制模式下被用户移除、待提交时删除的既有节点 id */
+const removedNodeIds = ref<number[]>([])
+/* 逾期节点销项：滞后原因弹窗 */
+const lagOpen = ref(false)
+const lagSaving = ref(false)
+const lagMs = ref<any>(null)
+const lagForm = reactive({ lagReason: '', lagMeasure: '' })
 const draft = reactive<Record<string, { deliverType: string; name: string; owners: string[]; dueDate: string; achievementNo: string }>>({})
 
 const dictStore = useDictStore()
 const user = useUserStore()
 const projectId = computed(() => Number(route.query.projectId || route.query.id || 0) || undefined)
 const isCompile = computed(() => String(route.query.mode || '') === 'compile')
+/** view=1：只读模式，所有输入禁用，隐藏提交 / 销项 / 审核按钮 */
+const viewOnly = computed(() => String(route.query.view || '') === '1')
 const dutyCode = computed<WorkDutyCode>(() => (isCompile.value ? 'milestone_compile' : 'milestone_close'))
 const { can, guard } = useWorkDuty(dutyCode, project)
 const newMsOpen = ref(false)
@@ -88,10 +106,10 @@ const annualStatus = computed(() => String(activeAnnualPlan.value?.finishStatus 
 const compilePendingAudit = computed(() => annualStatus.value === 'PENDING_AUDIT')
 const compileArchived = computed(() => annualStatus.value === 'DONE')
 const compileReturned = computed(() => annualStatus.value === 'RETURN')
-const canCompileEdit = computed(() => !compilePendingAudit.value && (can.value.fill || can.value.edit || can.value.submit))
+const canCompileEdit = computed(() => !viewOnly.value && !compilePendingAudit.value && !compileArchived.value && (can.value.fill || can.value.edit || can.value.submit))
 const compileReadonly = computed(() => isCompile.value && !canCompileEdit.value)
-const canAuditCompile = computed(() => isCompile.value && compilePendingAudit.value && can.value.audit)
-const canCloseOperate = computed(() => !isCompile.value && currentUserIsProjectOwner(project.value))
+const canAuditCompile = computed(() => !viewOnly.value && isCompile.value && compilePendingAudit.value && can.value.audit)
+const canCloseOperate = computed(() => !viewOnly.value && !isCompile.value && (user.isAdmin || currentUserIsProjectOwner(project.value)))
 const compileStatusType = computed(() => compilePendingAudit.value ? 'warning' : compileReturned.value ? 'error' : compileArchived.value ? 'success' : 'info')
 const compileStatusText = computed(() => {
   if (compilePendingAudit.value) return '里程碑节点与交付物清单已提交审查，当前流转到二级单位科技部门负责人。审核期间填报项锁定。'
@@ -116,15 +134,21 @@ function digitsOnly(value?: string | number) {
   return String(value || '').replace(/\D/g, '')
 }
 
+/** 去掉「姓名（工号）」中的工号部分，只留姓名 */
+function nameOnly(value?: string | number) {
+  return String(value || '').replace(/[（(].*$/, '').trim()
+}
+
+/** 办理人匹配：工号 digits 全等，或姓名全等（不做 includes 模糊匹配） */
 function sameCurrentPerson(employeeNo?: string | number, name?: string) {
   const myNo = digitsOnly(user.employeeNo)
   const targetNo = digitsOnly(employeeNo)
   if (myNo && targetNo && myNo === targetNo) return true
   const nameNo = digitsOnly(name)
-  if (myNo && nameNo && nameNo.includes(myNo)) return true
+  if (myNo && nameNo && nameNo === myNo) return true
   const myName = String(user.realName || '').trim()
-  const targetName = String(name || '').trim()
-  return !!myName && !!targetName && (myName === targetName || targetName.includes(myName))
+  const targetName = nameOnly(name)
+  return !!myName && !!targetName && myName === targetName
 }
 
 function findProjectMember(keys: string[]) {
@@ -150,9 +174,7 @@ function currentUserIsProjectOwner(target: any) {
   })
   if (ownerMatched) return true
   const ownerText = String(target.ownerName || '')
-  const myNo = digitsOnly(user.employeeNo)
-  const myName = String(user.realName || '').trim()
-  return (!!myNo && digitsOnly(ownerText).includes(myNo)) || (!!myName && ownerText.includes(myName))
+  return sameCurrentPerson(digitsOnly(ownerText), ownerText)
 }
 
 function isCloseAuditStatus(status?: string) {
@@ -170,7 +192,7 @@ function closeAuditNode(ms: any) {
 }
 
 function canAuditCloseMilestone(ms: any) {
-  if (!ms) return false
+  if (!ms || viewOnly.value) return false
   if (ms.status === 'CLOSE_DEPT_AUDIT') {
     const handler = findProjectMember(['DEPT_HEAD', '项目承担部门负责人'])
     if (handler) return sameCurrentPerson(handler.employeeNo, handler.userName || handler.realName || handler.name)
@@ -208,7 +230,7 @@ function newCompileKey(prefix = 'row') {
 }
 
 function emptyNode(): CompileNode {
-  return { key: newCompileKey('ms'), name: '', planDate: '', locked: false }
+  return { key: newCompileKey('ms'), name: '', planDate: '', locked: false, dateLocked: false, canDelete: true }
 }
 
 function emptyDv(nodeKey = ''): CompileDv {
@@ -281,19 +303,26 @@ function bindDvToNode(d: any, nodes: CompileNode[]) {
 
 function hydrateCompile() {
   hydrateAnnualGoal()
+  removedNodeIds.value = []
   const yearMs = yearMilestones()
   if (!yearMs.length) {
     compileNodes.value = [emptyNode(), emptyNode(), emptyNode()]
     compileDvs.value = [emptyDv(compileNodes.value[0].key)]
     return
   }
-  const nodes = yearMs.map((m) => ({
-    key: `ms-${m.id}`,
-    id: m.id,
-    name: m.name || '',
-    planDate: String(m.planDate || '').slice(0, 10),
-    locked: m.status === 'DONE' || m.colorStatus === 'GREEN',
-  }))
+  const nodes: CompileNode[] = yearMs.map((m) => {
+    const locked = m.status === 'DONE' || m.colorStatus === 'GREEN'
+    return {
+      key: `ms-${m.id}`,
+      id: m.id,
+      name: m.name || '',
+      planDate: String(m.planDate || '').slice(0, 10),
+      locked,
+      dateLocked: locked || !!m.dateLocked,
+      canDelete: m.canDelete === true,
+      budget: m.budget,
+    }
+  })
   compileNodes.value = nodes
   const yearMsIds = new Set(yearMs.map((m) => Number(m.id)))
   const yearDates = new Set(nodes.map((n) => n.planDate).filter(Boolean))
@@ -328,6 +357,10 @@ function removeCompileNode(row: CompileNode) {
     message.warning('已销项节点不可删除')
     return
   }
+  if (row.id && !row.canDelete) {
+    message.warning('该节点已进入基线或已有佐证，无法删除，请走变更')
+    return
+  }
   const bound = compileDvs.value.filter((d) => d.nodeKey === row.key)
   if (bound.some((d) => d.locked)) {
     message.warning('该节点下已有提交证明的交付物，不可删除')
@@ -335,8 +368,9 @@ function removeCompileNode(row: CompileNode) {
   }
   Modal.confirm({
     title: '移除该节点？',
-    content: row.id ? '提交审查后将从本年度节点中删除，其下未销项交付物一并移除。' : '仅从当前编制表中移除。',
+    content: row.id ? '提交审查时将从本年度节点中删除，其下未销项交付物一并移除。' : '仅从当前编制表中移除。',
     onOk: () => {
+      if (row.id && !removedNodeIds.value.includes(row.id)) removedNodeIds.value = [...removedNodeIds.value, row.id]
       compileNodes.value = compileNodes.value.filter((r) => r.key !== row.key)
       compileDvs.value = compileDvs.value.filter((d) => d.nodeKey !== row.key)
     },
@@ -422,37 +456,50 @@ async function saveCompile() {
     }
   }
   compileSaving.value = true
+  const year = compileYear.value
+  let step = '保存年度目标'
   try {
+    // 1. 年度目标：只传 year / annualGoal / planContent，不再直写 finishStatus
     await projectApi.saveAnnualPlan(projectId.value, {
-      year: compileYear.value,
+      year,
       annualGoal: annualGoal.value,
-      finishStatus: 'PENDING_AUDIT',
-      colorStatus: 'YELLOW',
+      planContent: activeAnnualPlan.value?.planContent,
     })
-    const keepIds = new Set(nodes.map((r) => r.id).filter(Boolean) as number[])
-    for (const m of yearMilestones()) {
-      if (m.status === 'DONE' || m.colorStatus === 'GREEN') continue
-      if (keepIds.has(Number(m.id))) continue
+    // 2. 仅删除用户在本页点了「移除」且后端标记 canDelete 的既有节点；其余节点一律保留
+    step = '删除节点'
+    for (const id of removedNodeIds.value) {
+      const m = milestones.value.find((x) => Number(x.id) === Number(id))
+      if (!m) continue
+      if (m.canDelete !== true) {
+        message.warning(`节点「${m.name}」已进入基线或已有佐证，无法删除，请走变更`)
+        continue
+      }
       for (const d of dvsOf(m)) {
         if (d.status !== 'DELIVERED' && !d.fileUrl) await deliverableApi.remove(d.id)
       }
       await milestoneApi.remove(m.id)
     }
-    const year = compileYear.value
+    removedNodeIds.value = []
+    // 3. 新增 / 更新本次清单里的节点（PUT 只传 name/budget/year，未锁定时附 planDate）
+    step = '保存节点'
     for (const r of nodes) {
-      const payload = {
-        projectId: projectId.value,
-        name: r.name.trim(),
-        year,
-        planDate: r.planDate,
-      }
       if (r.id) {
-        if (!r.locked) await milestoneApi.update(r.id, payload)
+        if (r.locked) continue
+        const payload: any = { name: r.name.trim(), year, budget: r.budget ?? 0 }
+        if (!r.dateLocked) payload.planDate = r.planDate
+        await milestoneApi.update(r.id, payload)
       } else {
-        const created = await milestoneApi.create({ ...payload, budget: 0, status: 'DOING' })
+        const created = await milestoneApi.create({
+          projectId: projectId.value,
+          name: r.name.trim(),
+          year,
+          planDate: r.planDate,
+          budget: 0,
+        })
         r.id = createdId(created)
       }
     }
+    step = '保存交付物'
     const keyToId = new Map(nodes.filter((n) => n.id).map((n) => [n.key, n.id as number]))
     const keepDvIds = new Set(dvs.map((d) => d.id).filter(Boolean) as number[])
     for (const old of deliverables.value) {
@@ -486,10 +533,15 @@ async function saveCompile() {
         d.id = createdId(created)
       }
     }
+    // 4. 所有节点保存完成后再提交清单审核（状态由后端置为 PENDING_AUDIT）
+    step = '提交清单审核'
+    await projectApi.submitAnnualPlan(projectId.value, { year })
     message.success('已提交审查，等待二级单位科技部门审核存档')
     await router.push('/implement/milestone')
   } catch (e: any) {
-    if (!isSilentAuthError(e)) message.error(e.message || '提交失败')
+    if (!isSilentAuthError(e)) message.error(`${step}失败：${e.message || '请稍后重试'}`)
+    // 失败时不改本地状态，重新拉取服务端数据
+    await load()
   } finally {
     compileSaving.value = false
   }
@@ -584,7 +636,10 @@ async function load() {
       const ev = mats.find((x: any) => x.fieldCode === 'EVIDENCE') || mats[0]
       if (ev) {
         evidenceName[String(m.id)] = ev.fieldName || evidenceName[String(m.id)] || ''
-        evidenceFile[String(m.id)] = { fileName: ev.fileName, fileUrl: ev.fileUrl }
+        evidenceFile[String(m.id)] = { fileName: ev.fileName, fileUrl: ev.fileUrl, objectKey: ev.objectKey }
+        evidenceList[String(m.id)] = [{ uid: `ev-${m.id}-${ev.id || 0}`, name: ev.fileName, status: 'done', url: ev.fileUrl }]
+      } else if (!evidenceList[String(m.id)]) {
+        evidenceList[String(m.id)] = []
       }
     }
     if (isCompile.value) hydrateCompile()
@@ -664,23 +719,47 @@ async function addAndProof(ms: any, file?: File) {
   }
 }
 
-async function uploadEvidence(ms: any, file: File) {
-  if (!requireCloseOwner(ms)) return
+/** a-upload custom-request：先传 MinIO 拿 objectKey，再登记为节点佐证材料 */
+async function uploadEvidence(ms: any, options: any) {
+  const file: File = options?.file
+  if (!requireCloseOwner(ms)) {
+    options?.onError?.(new Error('无上传权限'))
+    return
+  }
+  if (!file) return
   try {
+    options?.onProgress?.({ percent: 30 })
     const uploaded = await uploadFile(file)
-    evidenceFile[String(ms.id)] = { fileName: uploaded.fileName, fileUrl: uploaded.fileUrl }
+    if (!uploaded?.objectKey) throw new Error('上传结果缺少 objectKey，请重试')
+    options?.onProgress?.({ percent: 70 })
     await milestoneApi.saveMaterial(ms.id, {
+      objectKey: uploaded.objectKey,
       fieldCode: 'EVIDENCE',
       fieldName: evidenceName[String(ms.id)] || '节点完成佐证材料',
       fileName: uploaded.fileName,
       fileUrl: uploaded.fileUrl,
       fileSize: uploaded.fileSize,
     })
+    evidenceFile[String(ms.id)] = { fileName: uploaded.fileName, fileUrl: uploaded.fileUrl, objectKey: uploaded.objectKey }
+    options?.onSuccess?.(uploaded)
     message.success(`已上传节点佐证：${uploaded.fileName}`)
     await load()
   } catch (e: any) {
+    options?.onError?.(e)
     if (!isSilentAuthError(e)) message.error(e.message || '佐证上传失败')
   }
+}
+
+function onEvidenceListChange(ms: any, info: any) {
+  // 只保留最新一份佐证，展示上传中 / 成功 / 失败状态
+  const list = (info?.fileList || []).slice(-1)
+  evidenceList[String(ms.id)] = list
+}
+
+function msOverdue(ms: any) {
+  if (!ms || ms.status === 'DONE') return false
+  if (ms.colorStatus === 'RED' || ms.status === 'OVERDUE') return true
+  return !!ms.planDate && dayjs(ms.planDate).isBefore(dayjs(), 'day')
 }
 
 async function closeMs(ms: any) {
@@ -691,31 +770,62 @@ async function closeMs(ms: any) {
     return
   }
   const ev = evidenceFile[String(ms.id)]
-  if (!ev?.fileUrl && !(ms.materials || []).length && !ms.evidence) {
-    message.warning('请先上传节点完成佐证文件')
+  const evidenceMats = ((ms.materials || []) as any[]).filter((x) => x.fieldCode !== 'PLAN_TEMPLATE')
+  if (!ev?.fileUrl && !evidenceMats.length) {
+    message.warning('请先上传节点完成佐证文件（计划模板不计入佐证）')
+    return
+  }
+  if (msOverdue(ms)) {
+    lagMs.value = ms
+    lagForm.lagReason = ms.lagReason || ''
+    lagForm.lagMeasure = ms.lagMeasure || ''
+    lagOpen.value = true
     return
   }
   Modal.confirm({
     title: '确认提交节点销项审核？',
     content: `将里程碑「${ms.name}」提交项目承担部门负责人审核，通过后继续流转单位科研管理部门负责人。`,
-    onOk: async () => {
-      try {
-        if (evidenceName[String(ms.id)] && ev?.fileUrl) {
-          await milestoneApi.saveMaterial(ms.id, {
-            fieldCode: 'EVIDENCE',
-            fieldName: evidenceName[String(ms.id)],
-            fileName: ev.fileName,
-            fileUrl: ev.fileUrl,
-          })
-        }
-        await milestoneApi.close(ms.id)
-        message.success('已提交项目承担部门负责人审核')
-        await load()
-      } catch (e: any) {
-        if (!isSilentAuthError(e)) message.error(e.message)
-      }
-    },
+    onOk: () => doCloseMs(ms, {}),
   })
+}
+
+async function doCloseMs(ms: any, data: { lagReason?: string; lagMeasure?: string }) {
+  try {
+    const ev = evidenceFile[String(ms.id)]
+    // 佐证名称有改动且已知 objectKey 时同步一次材料名称（后端要求 objectKey）
+    if (evidenceName[String(ms.id)] && ev?.fileUrl && ev.objectKey) {
+      await milestoneApi.saveMaterial(ms.id, {
+        objectKey: ev.objectKey,
+        fieldCode: 'EVIDENCE',
+        fieldName: evidenceName[String(ms.id)],
+        fileName: ev.fileName,
+        fileUrl: ev.fileUrl,
+      })
+    }
+    await milestoneApi.close(ms.id, data)
+    message.success('已提交销项审核（待项目承担部门负责人审核）')
+    await load()
+    return true
+  } catch (e: any) {
+    if (!isSilentAuthError(e)) message.error(e.message || '提交销项失败')
+    return false
+  }
+}
+
+async function submitLagClose() {
+  const ms = lagMs.value
+  if (!ms) return
+  if (!lagForm.lagReason.trim() || !lagForm.lagMeasure.trim()) {
+    message.warning('节点已逾期，请填写滞后原因与处理措施')
+    return
+  }
+  lagSaving.value = true
+  try {
+    const okd = await doCloseMs(ms, { lagReason: lagForm.lagReason.trim(), lagMeasure: lagForm.lagMeasure.trim() })
+    if (okd) lagOpen.value = false
+  } finally {
+    lagSaving.value = false
+  }
 }
 
 async function auditClose(ms: any, pass: boolean) {
@@ -831,6 +941,13 @@ const listColumns = computed(() => {
           </section>
 
           <a-alert
+            v-if="viewOnly"
+            type="info"
+            message="只读查看：当前为清单查看模式，不能编辑或提交。"
+            show-icon
+            style="margin-bottom: 16px"
+          />
+          <a-alert
             :type="compileStatusType"
             :message="compileStatusText"
             show-icon
@@ -857,15 +974,19 @@ const listColumns = computed(() => {
                     :disabled="node.locked || compileReadonly"
                     :placeholder="`第 ${nodeNo(idx)} 个里程碑名称`"
                   />
-                  <a-date-picker
-                    v-model:value="node.planDate"
-                    :disabled="node.locked || compileReadonly"
-                    value-format="YYYY-MM-DD"
-                    placeholder="计划完成日期"
-                    style="width: 100%"
-                  />
+                  <a-tooltip :title="node.dateLocked && !node.locked ? '日期已进入基线，如需调整请走【延期申请】' : ''">
+                    <a-date-picker
+                      v-model:value="node.planDate"
+                      :disabled="node.locked || node.dateLocked || compileReadonly"
+                      value-format="YYYY-MM-DD"
+                      placeholder="计划完成日期"
+                      style="width: 100%"
+                    />
+                  </a-tooltip>
                 </div>
-                <a-button type="link" danger :disabled="node.locked || compileReadonly" @click="removeCompileNode(node)">删除节点</a-button>
+                <a-tooltip :title="node.id && !node.canDelete && !node.locked ? '已进入基线或已有佐证，无法删除，请走变更' : ''">
+                  <a-button type="link" danger :disabled="node.locked || compileReadonly || (!!node.id && !node.canDelete)" @click="removeCompileNode(node)">删除节点</a-button>
+                </a-tooltip>
               </div>
 
               <div class="node-deliverables">
@@ -939,6 +1060,7 @@ const listColumns = computed(() => {
         </a-space>
       </div>
       <WorkDutyBar :code="dutyCode" :project="project" />
+      <a-alert v-if="viewOnly" type="info" show-icon message="只读查看：当前为销项查看模式，不能上传或提交。" style="margin-bottom: 16px" />
 
       <a-spin :spinning="loading">
         <div v-if="project" class="proj-banner">
@@ -958,7 +1080,7 @@ const listColumns = computed(() => {
           <a-col :span="6"><div class="stat-card"><div class="label">交付完成率</div><div class="value">{{ stats.rate }}%</div></div></a-col>
         </a-row>
 
-        <a-empty v-if="!milestones.length && !loading" description="暂无里程碑，请先编制里程碑节点" />
+        <a-empty v-if="!milestones.length && !loading" description="暂无里程碑。请先返回里程碑填报，点击“编制里程碑节点”或“新增节点”" />
 
         <a-card
           v-for="(ms, idx) in milestones"
@@ -1020,11 +1142,21 @@ const listColumns = computed(() => {
 
           <div class="ev-row">
             <a-input v-model:value="evidenceName[String(ms.id)]" placeholder="节点完成佐证名称" style="max-width: 280px" :disabled="!canCloseUpload(ms) || ms.status === 'DONE'" />
-            <a-button :disabled="!canCloseUpload(ms) || ms.status === 'DONE'" @click="pickFile((f) => uploadEvidence(ms, f))">
-              {{ evidenceFile[String(ms.id)]?.fileName || '选择节点完成佐证文件' }}
-            </a-button>
+            <a-upload
+              class="ev-upload"
+              :file-list="evidenceList[String(ms.id)] || []"
+              :max-count="1"
+              :disabled="!canCloseUpload(ms) || ms.status === 'DONE'"
+              :custom-request="(options: any) => uploadEvidence(ms, options)"
+              @change="(info: any) => onEvidenceListChange(ms, info)"
+              @preview="(file: any) => openMaterial(file.url, file.name)"
+            >
+              <a-button :disabled="!canCloseUpload(ms) || ms.status === 'DONE'">
+                <UploadOutlined />{{ evidenceFile[String(ms.id)]?.fileName ? '重新上传佐证' : '上传节点完成佐证' }}
+              </a-button>
+            </a-upload>
             <a-button type="primary" :disabled="ms.status === 'DONE' || !canCloseUpload(ms)" @click="closeMs(ms)">
-              清单已齐 · 上传节点完成佐证并销项
+              清单已齐 · 提交节点销项审核
             </a-button>
             <a-button v-if="canAuditCloseMilestone(ms)" type="primary" @click="auditClose(ms, true)">审核通过</a-button>
             <a-button v-if="canAuditCloseMilestone(ms)" danger @click="auditClose(ms, false)">退回负责人</a-button>
@@ -1038,6 +1170,28 @@ const listColumns = computed(() => {
             </span>
           </div>
         </a-card>
+        <a-modal
+          v-model:open="lagOpen"
+          title="逾期节点销项 · 填写滞后原因"
+          :confirm-loading="lagSaving"
+          ok-text="提交销项审核"
+          @ok="submitLagClose"
+        >
+          <a-alert
+            type="warning"
+            show-icon
+            style="margin-bottom: 12px"
+            :message="`节点「${lagMs?.name || ''}」已逾期（计划 ${fmtDate(lagMs?.planDate)}），提交销项前须填写滞后原因与处理措施`"
+          />
+          <a-form layout="vertical">
+            <a-form-item label="滞后原因" required>
+              <a-textarea v-model:value="lagForm.lagReason" :rows="3" placeholder="说明节点滞后的主要原因" />
+            </a-form-item>
+            <a-form-item label="处理措施" required>
+              <a-textarea v-model:value="lagForm.lagMeasure" :rows="3" placeholder="已采取或拟采取的追赶措施" />
+            </a-form-item>
+          </a-form>
+        </a-modal>
         <a-modal v-model:open="newMsOpen" title="新增里程碑节点" @ok="createMilestone">
           <a-form layout="vertical">
             <a-form-item label="节点名称" required><a-input v-model:value="newMs.name" /></a-form-item>
@@ -1072,6 +1226,7 @@ const listColumns = computed(() => {
   border-radius: 4px;
 }
 .temp-label { color: #8c8c8c; font-size: 12px; }
+.ev-upload :deep(.ant-upload-list) { max-width: 320px; }
 .hint { font-size: 12px; color: #8c8c8c; }
 .node-hint { margin: 0 0 12px; color: #8c8c8c; font-size: 13px; }
 

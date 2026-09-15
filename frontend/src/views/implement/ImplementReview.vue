@@ -3,12 +3,13 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { SearchOutlined } from '@ant-design/icons-vue'
-import { milestoneApi } from '@/api/modules'
-import type { MilestoneTodo } from '@/api/types'
+import { milestoneApi, projectApi } from '@/api/modules'
+import type { MilestoneTodo, PendingBasicDraft } from '@/api/types'
 import { usePendingStore } from '@/stores/pending'
 import { useUserStore } from '@/stores/user'
 import { implClosePath, implCompilePath } from '@/utils/implementFlow'
 import { isSilentAuthError } from '@/api/request'
+import { fmtDate } from '@/utils/format'
 
 const router = useRouter()
 const user = useUserStore()
@@ -17,12 +18,14 @@ const loading = ref(false)
 const keyword = ref('')
 const annualYear = ref(new Date().getFullYear())
 const rows = ref<MilestoneTodo[]>([])
+const page = ref(1)
+const PAGE_SIZE = 10
 
 const columns = [
   { title: '任务类型', dataIndex: 'typeLabel', width: 150 },
   { title: '项目编号', dataIndex: 'projectNo', width: 180 },
   { title: '项目名称', dataIndex: 'projectName', width: 280 },
-  { title: '当前节点', key: 'node', width: 220 },
+  { title: '当前节点', key: 'node', width: 240 },
   { title: '负责人', dataIndex: 'ownerName', width: 120 },
   { title: '年度', dataIndex: 'year', width: 90 },
   { title: '状态', dataIndex: 'status', width: 120 },
@@ -37,24 +40,60 @@ const filteredRows = computed(() => {
   )
 })
 
+function rowKey(record: MilestoneTodo) {
+  return `${record.taskType}-${record.projectId}-${record.milestoneId || ''}-${record.draftId || ''}-${record.year || ''}`
+}
+
+function basicDraftRow(d: PendingBasicDraft): MilestoneTodo {
+  return {
+    taskType: 'BASIC_AUDIT',
+    typeLabel: '基本信息审批',
+    draftId: d.draftId,
+    projectId: d.projectId,
+    projectNo: d.projectNo,
+    projectName: d.projectName,
+    ownerName: d.ownerName,
+    flowNode: d.flowNode,
+    flowNodeName: d.flowNodeName,
+    submittedBy: d.submittedBy,
+    submittedAt: d.submittedAt,
+    status: 'APPROVING',
+  }
+}
+
 async function load() {
   loading.value = true
   try {
-    const res = await milestoneApi.board({ year: annualYear.value })
-    rows.value = (((res.data as any)?.todos || []) as MilestoneTodo[]).filter(
-      (row) => row.taskType === 'COMPILE_AUDIT' || row.taskType === 'CLOSE_AUDIT',
-    )
+    const [boardRes, draftRes] = await Promise.allSettled([
+      milestoneApi.board({ year: annualYear.value }),
+      projectApi.pendingBasicDrafts(),
+    ])
+    const list: MilestoneTodo[] = []
+    if (boardRes.status === 'fulfilled') {
+      const todos = ((boardRes.value.data as any)?.todos || []) as MilestoneTodo[]
+      list.push(...todos.filter((row) => row.taskType === 'COMPILE_AUDIT' || row.taskType === 'CLOSE_AUDIT'))
+    } else if (!isSilentAuthError(boardRes.reason)) {
+      message.error(boardRes.reason?.message || '加载里程碑审核任务失败')
+    }
+    if (draftRes.status === 'fulfilled') {
+      const drafts = ((draftRes.value.data as any) || []) as PendingBasicDraft[]
+      list.push(...drafts.map(basicDraftRow))
+    } else if (!isSilentAuthError(draftRes.reason)) {
+      message.error(draftRes.reason?.message || '加载基本信息审批任务失败')
+    }
+    rows.value = list
+    page.value = 1
     pendingStore.setMilestoneReviewCount(rows.value.length)
-  } catch (e: any) {
-    rows.value = []
-    pendingStore.setMilestoneReviewCount(0)
-    if (!isSilentAuthError(e)) message.error(e?.message || '加载实施阶段待审核任务失败')
   } finally {
     loading.value = false
   }
 }
 
 function goAudit(row: MilestoneTodo) {
+  if (row.taskType === 'BASIC_AUDIT') {
+    router.push(`/implement/basic?projectId=${row.projectId}`)
+    return
+  }
   const path = row.taskType === 'CLOSE_AUDIT'
     ? implClosePath(row.projectId, row.milestoneId)
     : implCompilePath(row.projectId, row.milestoneId)
@@ -63,13 +102,23 @@ function goAudit(row: MilestoneTodo) {
 }
 
 function nodeTitle(row: MilestoneTodo) {
+  if (row.taskType === 'BASIC_AUDIT') return row.flowNodeName || row.flowNode || '基本信息审批'
   if (row.taskType === 'CLOSE_AUDIT') return row.flowNode || '里程碑销项审核'
   return '二级单位科技部门审核存档'
 }
 
 function nodeSub(row: MilestoneTodo) {
+  if (row.taskType === 'BASIC_AUDIT') {
+    return row.submittedBy ? `${row.submittedBy} 提交于 ${fmtDate(row.submittedAt, 'YYYY-MM-DD HH:mm')}` : '项目基本信息变更草稿'
+  }
   if (row.taskType === 'CLOSE_AUDIT') return row.milestoneName || '节点销项材料'
   return '里程碑节点与交付物清单'
+}
+
+function typeColor(row: MilestoneTodo) {
+  if (row.taskType === 'BASIC_AUDIT') return 'purple'
+  if (row.taskType === 'CLOSE_AUDIT') return 'blue'
+  return 'orange'
 }
 
 onMounted(load)
@@ -81,7 +130,7 @@ onMounted(load)
       <div>
         <h2 class="page-title">实施阶段待我审核</h2>
         <div class="page-desc">
-          汇总当前账号在实施阶段需要审核的任务。里程碑节点与交付物清单提交审查后，会流转到指定审核人并在这里显示。
+          汇总当前账号在实施阶段需要审核的任务：里程碑清单审核、节点销项审核、项目基本信息审批。任务提交后会流转到指定审核人并在这里显示。
         </div>
       </div>
       <a-space>
@@ -118,10 +167,10 @@ onMounted(load)
         :columns="columns"
         :data-source="filteredRows"
         :loading="loading"
-        :row-key="(record) => `${record.taskType}-${record.projectId}-${record.year || annualYear}`"
+        :row-key="rowKey"
         :scroll="{ x: 1300 }"
-        :pagination="false"
-        :locale="{ emptyText: '暂无实施阶段待审核任务' }"
+        :pagination="{ current: page, pageSize: PAGE_SIZE, total: filteredRows.length, showTotal: (t: number) => `共 ${t} 条`, onChange: (p: number) => { page = p } }"
+        :locale="{ emptyText: loading ? '加载中…' : '暂无实施阶段待审核任务' }"
       >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'node'">
@@ -129,13 +178,13 @@ onMounted(load)
             <div class="node-sub">{{ nodeSub(record) }}</div>
           </template>
           <template v-else-if="column.dataIndex === 'typeLabel'">
-            <a-tag :color="record.taskType === 'CLOSE_AUDIT' ? 'blue' : 'orange'">{{ record.typeLabel || '里程碑清单审核' }}</a-tag>
+            <a-tag :color="typeColor(record)">{{ record.typeLabel || '里程碑清单审核' }}</a-tag>
           </template>
           <template v-else-if="column.dataIndex === 'status'">
             <a-tag color="processing">待审核</a-tag>
           </template>
           <template v-else-if="column.dataIndex === 'year'">
-            {{ record.year || annualYear }}
+            {{ record.taskType === 'BASIC_AUDIT' ? '—' : record.year || annualYear }}
           </template>
           <template v-else-if="column.key === 'action'">
             <a-space :size="4">

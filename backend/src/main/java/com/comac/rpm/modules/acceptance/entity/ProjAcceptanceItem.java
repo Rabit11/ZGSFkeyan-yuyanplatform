@@ -1,7 +1,8 @@
 package com.comac.rpm.modules.acceptance.entity;
 
+import java.time.LocalDateTime;
+
 import com.baomidou.mybatisplus.annotation.IdType;
-import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -40,6 +41,18 @@ public class ProjAcceptanceItem {
 
     /** 文件地址 */
     private String fileUrl;
+
+    /** 文件名 */
+    private String fileName;
+
+    /** 文件大小 */
+    private Long fileSize;
+
+    /** 上传人 */
+    private String uploadedBy;
+
+    /** 上传时间 */
+    private LocalDateTime uploadedAt;
 
     /** 状态 */
     private String status;

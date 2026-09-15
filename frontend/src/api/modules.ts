@@ -77,8 +77,6 @@ export const fundApi = {
   payments: (projectId: number) => http.get(`/api/projects/${projectId}/fund/payments`),
   createPayment: (data: any) => http.post('/api/fund/payments', data),
   writeoff: (id: number, data?: any) => http.post(`/api/fund/payments/${id}/writeoff`, data || { pass: true }),
-  reversePayment: (id: number, data?: { reason?: string }) =>
-    http.post(`/api/fund/payments/${id}/reverse`, data || {}),
   hqBudgets: (year?: number) => http.get('/api/hq-fund/budgets', { year }),
   createHqBudget: (data: any) => http.post('/api/hq-fund/budgets', data),
   lockHqBudget: (id: number) => http.post(`/api/hq-fund/budgets/${id}/lock`),
@@ -95,13 +93,6 @@ export const evalApi = {
   create: (data: any) => http.post('/api/evaluations', data),
   update: (id: number, data: any) => http.put(`/api/evaluations/${id}`, data),
   remove: (id: number) => http.del(`/api/evaluations/${id}`),
-  submit: (id: number) => http.post(`/api/evaluations/${id}/submit`),
-  audit: (id: number, data: { pass: boolean }) => http.post(`/api/evaluations/${id}/audit`, data),
-  rectify: (id: number, data: { rectifyNote: string }) => http.post(`/api/evaluations/${id}/rectify`, data),
-  materials: (id: number) => http.get(`/api/evaluations/${id}/materials`),
-  uploadMaterial: (id: number, data: any) => http.post(`/api/evaluations/${id}/materials`, data),
-  removeMaterial: (id: number, materialId: number) =>
-    http.del(`/api/evaluations/${id}/materials/${materialId}`),
 }
 
 export const changeApi = {
@@ -115,7 +106,6 @@ export const changeApi = {
 
 export const declarationApi = {
   page: (params: any) => http.get('/api/declarations', params),
-  pending: () => http.get('/api/declarations/pending'),
   detail: (id: number) => http.get(`/api/declarations/${id}`),
   create: (data: any) => http.post('/api/declarations', data),
   update: (id: number, data: any) => http.put(`/api/declarations/${id}`, data),
@@ -134,6 +124,7 @@ export const acceptanceApi = {
   detail: (projectId: number) => http.get(`/api/acceptance/${projectId}`),
   check: (projectId: number) => http.post(`/api/acceptance/${projectId}/check`),
   submit: (projectId: number) => http.post(`/api/acceptance/${projectId}/submit`),
+  resultHandoff: (projectId: number) => http.get(`/api/acceptance/${projectId}/result-handoff`),
   materials: (projectId: number, data: any) =>
     http.post(`/api/acceptance/${projectId}/materials`, data),
   audit: (projectId: number, data: any) =>

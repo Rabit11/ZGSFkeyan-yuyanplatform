@@ -4,7 +4,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 import com.baomidou.mybatisplus.annotation.IdType;
-import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -28,6 +27,15 @@ public class ProjAcceptance {
 
     /** 状态 */
     private String status;
+
+    /** 当前审批节点 */
+    private String currentNode;
+
+    /** 最近流程意见 */
+    private String latestOpinion;
+
+    /** 最近流程处理时间 */
+    private LocalDateTime latestProcessAt;
 
     /** 申请时间 */
     private LocalDateTime applyAt;

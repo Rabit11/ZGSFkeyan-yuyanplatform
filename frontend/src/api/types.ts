@@ -415,6 +415,9 @@ export interface ProjAcceptance {
   projectId: number
   acceptLevel?: string
   status?: string
+  currentNode?: string
+  latestOpinion?: string
+  latestProcessAt?: string
   applyAt?: string
   finishAt?: string
   conclusion?: string
@@ -431,6 +434,10 @@ export interface ProjAcceptanceItem {
   materialName?: string
   required?: number
   locked?: number
+  fileName?: string
+  fileSize?: number
+  uploadedBy?: string
+  uploadedAt?: string
   fileUrl?: string
   status?: string
 }
@@ -440,6 +447,28 @@ export interface CheckItem {
   label: string
   passed: boolean
   message: string
+}
+
+export interface AcceptanceResultHandoff {
+  projectId: number
+  projectNo?: string
+  projectName?: string
+  acceptanceId?: number
+  acceptLevel?: string
+  acceptanceStatus?: string
+  currentNode?: string
+  acceptedAt?: string
+  conclusion?: string
+  partnerDueDate?: string
+  resultReady: boolean
+  nextBiz: 'ACHIEVEMENT_ACCEPTANCE'
+  nextBizStatus: 'READY' | 'WAIT_ACCEPTANCE_DONE'
+  materialCount: number
+  deliverableCount: number
+  deliveredDeliverableCount: number
+  acceptanceMaterials: ProjAcceptanceItem[]
+  deliveredDeliverables: ProjDeliverable[]
+  achievementNos: string[]
 }
 
 /* ------------------------------ 交付物 ------------------------------ */
