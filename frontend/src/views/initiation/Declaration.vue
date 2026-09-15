@@ -745,7 +745,13 @@ async function onConfirmSubmit() {
           duration: 3,
         })
         open.value = false
-        await load()
+        editing.value = null
+        // 提交已完成；列表刷新异常不能让确认框保留并再次提交同一申报。
+        try {
+          await load()
+        } catch {
+          message.warning({ content: '申报已提交成功，列表刷新失败，请点击查询刷新；无需重复提交。', key: 'declaration-refresh', duration: 5 })
+        }
       } catch (error: any) {
         message.error({ content: submitErrorText(error), key: 'declaration-submit', duration: 5 })
         throw error

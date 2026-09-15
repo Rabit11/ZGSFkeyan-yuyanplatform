@@ -111,6 +111,7 @@ export const changeApi = {
 }
 
 export const declarationApi = {
+  pending: () => http.get('/api/declarations/pending'),
   page: (params: any) => http.get('/api/declarations', params),
   detail: (id: number) => http.get(`/api/declarations/${id}`),
   create: (data: any) => http.post('/api/declarations', data),
