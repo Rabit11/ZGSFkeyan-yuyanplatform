@@ -15,8 +15,6 @@ import com.comac.rpm.modules.fund.mapper.FundPaymentMapper;
 import com.comac.rpm.modules.fund.mapper.HqFundBudgetMapper;
 import com.comac.rpm.modules.fund.mapper.HqFundQuotaMapper;
 import com.comac.rpm.modules.fund.mapper.HqFundTransferMapper;
-import com.comac.rpm.modules.milestone.entity.ProjMilestone;
-import com.comac.rpm.modules.milestone.mapper.ProjMilestoneMapper;
 import com.comac.rpm.modules.project.entity.ProjInfo;
 import com.comac.rpm.modules.project.entity.ProjTeamMember;
 import com.comac.rpm.modules.project.mapper.ProjInfoMapper;
@@ -64,8 +62,8 @@ public class FundController {
     private HqFundQuotaMapper quotaMapper;
     @Autowired
     private HqFundTransferMapper transferMapper;
-    @Autowired
-    private ProjMilestoneMapper milestoneMapper;
+    @Autowired private com.comac.rpm.modules.file.MinioStorageService storage;
+    @Autowired private com.comac.rpm.modules.transform.TransformAccess projectAccess;
     @Autowired
     private ProjInfoMapper projectMapper;
     @Autowired
@@ -77,12 +75,14 @@ public class FundController {
 
     @GetMapping("/projects/{projectId}/fund/budgets")
     public R<Object> budgets(@PathVariable("projectId") Long projectId) {
+        projectAccess.requireReadable(projectId);
         return R.ok(budgetMapper.selectList(
                 new LambdaQueryWrapper<FundBudget>().eq(FundBudget::getProjectId, projectId)));
     }
 
     @GetMapping("/projects/{projectId}/fund/payments")
     public R<Object> payments(@PathVariable("projectId") Long projectId) {
+        projectAccess.requireReadable(projectId);
         return R.ok(paymentMapper.selectList(
                 new LambdaQueryWrapper<FundPayment>().eq(FundPayment::getProjectId, projectId)
                         .orderByDesc(FundPayment::getOccurDate)));
@@ -126,7 +126,7 @@ public class FundController {
                         "预算复核", "budget", "hq-budget", budget.getMilestoneName());
             } else if ("APPROVED".equals(status)
                     && canUnitWriteoff && canActOnProject(user, project, "finHead")
-                    && needsWriteoffUpload(projectId, budget.getMilestoneId())) {
+                    && needsWriteoffUpload(projectId, budget.getYear())) {
                 pushFundReview(grouped, "fund-writeoff-upload-" + projectId, project, "二级单位财务上传付款凭证并完成本级核销",
                         "核销填报", "writeoff", "writeoff-upload", budget.getMilestoneName());
             }
@@ -151,62 +151,60 @@ public class FundController {
     }
 
     @PostMapping("/fund/budgets")
+    @org.springframework.transaction.annotation.Transactional
     public R<Long> createBudget(@RequestBody FundBudget body) {
         body.setId(null);
-        if (body.getStatus() == null) {
-            body.setStatus("PENDING");
-        }
-        boolean submitting = "PENDING".equals(body.getStatus()) || "UNIT_AUDIT".equals(body.getStatus());
-        if (submitting) {
-            flowAuditGuard.requireActors(body.getProjectId(), "经费预算提交", "owner");
-        } else {
-            flowAuditGuard.requireActors(body.getProjectId(), "经费预算暂存",
-                    "owner", "techLead", "projectPm", "contactLogin");
-        }
+        body.setMilestoneId(null);
+        if (body.getStatus() == null) body.setStatus("DRAFT");
+        if (!Set.of("DRAFT", "PENDING").contains(body.getStatus())) throw new BusinessException(409, "预算须由草稿或负责人提交开始");
+        boolean submitting = "PENDING".equals(body.getStatus());
+        flowAuditGuard.requireActors(body.getProjectId(), submitting ? "经费预算提交" : "经费预算暂存",
+                submitting ? new String[]{"owner"} : new String[]{"owner", "techLead", "projectPm", "contactLogin"});
         validateBudget(body, submitting);
         budgetMapper.insert(body);
         return R.ok(body.getId());
     }
 
     @PutMapping("/fund/budgets/{id}")
+    @org.springframework.transaction.annotation.Transactional
     public R<Boolean> updateBudget(@PathVariable("id") Long id, @RequestBody FundBudget body) {
-        body.setId(id);
         FundBudget exist = budgetMapper.selectById(id);
-        Long projectId = body.getProjectId() != null ? body.getProjectId()
-                : (exist == null ? null : exist.getProjectId());
-        // 已备案（APPROVED）预算金额锁定，调整须走【项目变更】。
-        if (exist != null && "APPROVED".equals(exist.getStatus())
-                && !"APPROVED".equals(body.getStatus())
-                && body.getAmount() != null && exist.getAmount() != null
-                && body.getAmount().compareTo(exist.getAmount()) != 0) {
-            throw new BusinessException("已备案预算金额已锁定，如需调整请发起【项目变更】");
-        }
-        boolean submitting = "UNIT_OK".equals(body.getStatus()) || "APPROVED".equals(body.getStatus())
-                || "PENDING".equals(body.getStatus());
-        if ("UNIT_OK".equals(body.getStatus())) {
+        if (exist == null) throw new BusinessException(404, "预算记录不存在");
+        Long projectId = exist.getProjectId();
+        if (body.getProjectId() != null && !body.getProjectId().equals(projectId)) throw new BusinessException(409, "预算不可改换项目");
+        String from = exist.getStatus(), to = body.getStatus() == null ? from : body.getStatus();
+        boolean editing = "DRAFT".equals(from) && Set.of("DRAFT", "PENDING").contains(to);
+        if (editing) {
+            flowAuditGuard.requireActors(projectId, "PENDING".equals(to) ? "经费预算提交" : "经费预算暂存",
+                    "PENDING".equals(to) ? new String[]{"owner"} : new String[]{"owner", "techLead", "projectPm", "contactLogin"});
+        } else if ("PENDING".equals(from) && Set.of("UNIT_OK", "DRAFT").contains(to)) {
             flowAuditGuard.requireActors(projectId, "二级单位财务审核", "finHead", "finStaff");
-        } else if ("APPROVED".equals(body.getStatus())) {
-            flowAuditGuard.requireActors(projectId, "总部财务复核", "finHq");
-        } else if ("PENDING".equals(body.getStatus())) {
-            flowAuditGuard.requireActors(projectId, "经费预算提交", "owner");
-        } else if ("DRAFT".equals(body.getStatus())) {
-            flowAuditGuard.requireActors(projectId, "经费预算暂存",
-                    "owner", "techLead", "projectPm", "contactLogin");
-        }
-        if (body.getProjectId() == null) {
-            body.setProjectId(projectId);
-        }
-        validateBudget(body, submitting);
-        budgetMapper.updateById(body);
+        } else if ("UNIT_OK".equals(from) && Set.of("APPROVED", "PENDING").contains(to)) {
+            flowAuditGuard.requireActors(projectId, "总部财务复核备案", "finHq");
+        } else throw new BusinessException(409, "当前预算状态不允许该操作；已备案预算不可直接修改");
+        if (!editing && ((body.getAmount() != null && body.getAmount().compareTo(exist.getAmount()) != 0)
+                || (body.getYear() != null && !body.getYear().equals(exist.getYear()))
+                || (body.getMilestoneName() != null && !body.getMilestoneName().equals(exist.getMilestoneName()))))
+            throw new BusinessException(403, "审核人员只能审核，不可修改预算内容");
+        FundBudget next = new FundBudget();
+        next.setId(id); next.setProjectId(projectId); next.setStatus(to);
+        next.setYear(editing && body.getYear()!=null ? body.getYear() : exist.getYear());
+        next.setAmount(editing && body.getAmount()!=null ? body.getAmount() : exist.getAmount());
+        next.setMilestoneName(editing && body.getMilestoneName()!=null ? body.getMilestoneName() : exist.getMilestoneName());
+        // 历史关联仅保留，不再作为预算或核销前置条件；新预算不建立关联。
+        next.setMilestoneId(exist.getMilestoneId());
+        validateBudget(next, !"DRAFT".equals(to));
+        budgetMapper.updateById(next);
         return R.ok(true);
     }
 
     @DeleteMapping("/fund/budgets/{id}")
+    @org.springframework.transaction.annotation.Transactional
     public R<Boolean> deleteBudget(@PathVariable("id") Long id) {
         FundBudget exist = budgetMapper.selectById(id);
         if (exist != null) {
-            if ("APPROVED".equals(exist.getStatus())) {
-                throw new BusinessException("已备案预算不可删除，如需调整请发起【项目变更】");
+            if (!"DRAFT".equals(exist.getStatus())) {
+                throw new BusinessException("仅草稿预算可删除，审核中及已备案预算不可删除");
             }
             flowAuditGuard.requireActors(exist.getProjectId(), "删除经费预算",
                     "owner", "techLead", "projectPm", "contactLogin");
@@ -215,35 +213,32 @@ public class FundController {
         return R.ok(true);
     }
 
-    /** 预算字段校验：金额、里程碑归属、同一里程碑唯一有效预算（表5-14）。 */
+    /** 项目年度预算项独立维护，不使用里程碑作为外键或前置条件。 */
     private void validateBudget(FundBudget budget, boolean submitting) {
-        BigDecimal amount = budget.getAmount();
-        if (amount == null || amount.signum() < 0 || (submitting && amount.signum() == 0)) {
-            throw new BusinessException("预算金额须为有效数字，提交审签时须大于零");
-        }
-        Long milestoneId = budget.getMilestoneId();
-        if (milestoneId == null) {
-            throw new BusinessException("请选择预算绑定的里程碑节点");
-        }
-        ProjMilestone milestone = milestoneMapper.selectById(milestoneId);
-        if (milestone == null || budget.getProjectId() == null
-                || !budget.getProjectId().equals(milestone.getProjectId())) {
-            throw new BusinessException("预算绑定的里程碑节点须属于当前项目");
-        }
-        LambdaQueryWrapper<FundBudget> dup = new LambdaQueryWrapper<FundBudget>()
-                .eq(FundBudget::getProjectId, budget.getProjectId())
-                .eq(FundBudget::getMilestoneId, milestoneId);
-        if (budget.getId() != null) {
-            dup.ne(FundBudget::getId, budget.getId());
-        }
-        if (budgetMapper.selectCount(dup) > 0) {
-            throw new BusinessException("同一里程碑节点仅允许一条有效预算");
-        }
+        ProjInfo project = budget.getProjectId() == null ? null : projectMapper.selectById(budget.getProjectId());
+        if (project == null) throw new BusinessException(404, "项目不存在");
+        if (budget.getYear()==null || budget.getYear()<2000 || budget.getYear()>2100) throw new BusinessException("请填写有效预算年度");
+        String name=budget.getMilestoneName()==null ? "" : budget.getMilestoneName().trim();
+        if("项目经费总核".equals(name)) throw new BusinessException("请使用具体预算项名称，该名称仅保留给历史记录");
+        if(name.isEmpty() || name.length()>255) throw new BusinessException("请填写预算项名称（不超过255字）");
+        budget.setMilestoneName(name);
+        BigDecimal amount=budget.getAmount();
+        if(amount==null || amount.signum()<0 || (submitting && amount.signum()==0)) throw new BusinessException("预算金额须为有效数字，提交须大于零");
+        var duplicate=new LambdaQueryWrapper<FundBudget>().eq(FundBudget::getProjectId,budget.getProjectId())
+                .eq(FundBudget::getYear,budget.getYear()).eq(FundBudget::getMilestoneName,name);
+        if(budget.getId()!=null) duplicate.ne(FundBudget::getId,budget.getId());
+        if(budgetMapper.selectCount(duplicate)>0) throw new BusinessException("该项目本年度已存在同名预算项");
+        BigDecimal total=budgetMapper.selectList(new LambdaQueryWrapper<FundBudget>().eq(FundBudget::getProjectId,budget.getProjectId()))
+                .stream().filter(b->!java.util.Objects.equals(b.getId(),budget.getId()) && !"项目经费总核".equals(b.getMilestoneName()))
+                .map(b->b.getAmount()==null ? BigDecimal.ZERO : b.getAmount()).reduce(amount,BigDecimal::add);
+        if(project.getTotalFund()!=null && total.compareTo(project.getTotalFund())>0) throw new BusinessException("项目各预算项合计不能超过项目总经费");
     }
 
     @PostMapping("/fund/payments")
+    @org.springframework.transaction.annotation.Transactional
     public R<Long> createPayment(@RequestBody FundPayment body) {
         body.setId(null);
+        body.setBudgetId(null); // 核销按项目登记，不再写入旧里程碑关联。
         if (body.getFlowType() == null) {
             body.setFlowType("PAY");
         }
@@ -279,8 +274,27 @@ public class FundController {
         return R.ok(body.getId());
     }
 
+    @PutMapping("/fund/payments/{id}")
+    @org.springframework.transaction.annotation.Transactional
+    public R<Boolean> updatePayment(@PathVariable("id") Long id, @RequestBody FundPayment body) {
+        FundPayment existing = paymentMapper.selectById(id);
+        if(existing==null) throw new BusinessException(404,"核销记录不存在");
+        if(!"DRAFT".equals(existing.getWriteoffStatus())) throw new BusinessException(409,"仅核销草稿可修改");
+        if(body.getProjectId()!=null && !body.getProjectId().equals(existing.getProjectId())) throw new BusinessException(409,"核销不可改换项目");
+        flowAuditGuard.requireActors(existing.getProjectId(),"维护核销草稿","finHead");
+        String status=body.getWriteoffStatus()==null ? "DRAFT" : body.getWriteoffStatus();
+        if(!Set.of("DRAFT","WRITTEN").contains(status)) throw new BusinessException(409,"请暂存或完成本级核销");
+        body.setId(id); body.setProjectId(existing.getProjectId()); body.setBudgetId(existing.getBudgetId());
+        body.setFlowType("WRITEOFF"); body.setWriteoffStatus(status);
+        body.setOperator(flowAuditGuard.currentUser().getRealName());
+        validatePayment(body,"WRITTEN".equals(status));
+        paymentMapper.updateById(body);
+        return R.ok(true);
+    }
+
     /** 核销办理：二级单位财务负责人完成本级核销后，数据自动同步总部经费看板。 */
     @PostMapping("/fund/payments/{id}/writeoff")
+    @org.springframework.transaction.annotation.Transactional
     public R<Boolean> writeoff(@PathVariable("id") Long id,
                                @RequestBody(required = false) Map<String, Object> body) {
         FundPayment exist = paymentMapper.selectById(id);
@@ -310,18 +324,18 @@ public class FundController {
         if (amount == null || amount.signum() < 0 || (submitted && amount.signum() == 0)) {
             throw new BusinessException("核销金额须为有效数字，正式提交须大于零");
         }
-        Long milestoneId = payment.getBudgetId();
-        ProjMilestone milestone = milestoneId == null ? null : milestoneMapper.selectById(milestoneId);
-        if (milestone == null || !payment.getProjectId().equals(milestone.getProjectId())
-                || !"DONE".equals(milestone.getStatus())) {
-            throw new BusinessException("核销节点须属于当前项目且已完成闭环");
-        }
+        if(payment.getProjectId()==null || projectMapper.selectById(payment.getProjectId())==null) throw new BusinessException(404,"项目不存在");
         if (submitted) {
             String[] material = (payment.getRemark() == null ? "" : payment.getRemark()).split("\\|\\|", -1);
             if (payment.getOccurDate() == null || material.length < 3
                     || material[0].isBlank() || material[1].isBlank() || material[2].isBlank()) {
                 throw new BusinessException("核销日期、用途与付款凭证为必填");
             }
+            String key=com.comac.rpm.modules.file.MinioStorageService.extractObjectKey(material[2]);
+            if(key==null || !key.startsWith("fund/") || !storage.exists(key)) throw new BusinessException("付款凭证不存在，请先上传真实经费凭证");
+            long approved=budgetMapper.selectCount(new LambdaQueryWrapper<FundBudget>()
+                    .eq(FundBudget::getProjectId,payment.getProjectId()).eq(FundBudget::getYear,payment.getOccurDate().getYear()).eq(FundBudget::getStatus,"APPROVED"));
+            if(approved==0) throw new BusinessException("费用发生年度尚无已备案预算，请先完成预算审签");
             String voucherNo = payment.getVoucherNo() == null ? "" : payment.getVoucherNo().trim();
             if (voucherNo.isEmpty()) {
                 throw new BusinessException("凭证号必填");
@@ -343,6 +357,7 @@ public class FundController {
      * 原核销记录保留，红冲记录自动同步总部经费看板抵减。
      */
     @PostMapping("/fund/payments/{id}/reverse")
+    @org.springframework.transaction.annotation.Transactional
     public R<Long> reversePayment(@PathVariable("id") Long id,
                                   @RequestBody(required = false) Map<String, Object> body) {
         FundPayment origin = paymentMapper.selectById(id);
@@ -358,7 +373,6 @@ public class FundController {
         flowAuditGuard.requireActors(origin.getProjectId(), "经费核销红冲", "finHead");
         LambdaQueryWrapper<FundPayment> reversed = new LambdaQueryWrapper<FundPayment>()
                 .eq(FundPayment::getFlowType, "REVERSE")
-                .eq(FundPayment::getBudgetId, origin.getBudgetId())
                 .eq(FundPayment::getProjectId, origin.getProjectId())
                 .likeRight(FundPayment::getRemark, "红冲#" + origin.getId() + "||");
         if (paymentMapper.selectCount(reversed) > 0) {
@@ -380,22 +394,12 @@ public class FundController {
         return R.ok(red.getId());
     }
 
-    private boolean needsWriteoffUpload(Long projectId, Long milestoneId) {
-        if (projectId == null || milestoneId == null) {
-            return false;
-        }
-        List<FundPayment> rows = paymentMapper.selectList(new LambdaQueryWrapper<FundPayment>()
-                .eq(FundPayment::getProjectId, projectId)
-                .eq(FundPayment::getBudgetId, milestoneId));
-        if (rows == null || rows.isEmpty()) {
-            return true;
-        }
-        for (FundPayment row : rows) {
-            if ("DRAFT".equals(row.getWriteoffStatus())) {
-                return true;
-            }
-        }
-        return false;
+    private boolean needsWriteoffUpload(Long projectId, Integer year) {
+        if(projectId==null || year==null) return false;
+        List<FundPayment> rows=paymentMapper.selectList(new LambdaQueryWrapper<FundPayment>()
+                .eq(FundPayment::getProjectId,projectId).ge(FundPayment::getOccurDate,LocalDate.of(year,1,1))
+                .lt(FundPayment::getOccurDate,LocalDate.of(year+1,1,1)));
+        return rows.isEmpty() || rows.stream().anyMatch(r->"DRAFT".equals(r.getWriteoffStatus()));
     }
 
     private void pushFundReview(LinkedHashMap<String, Map<String, Object>> grouped,

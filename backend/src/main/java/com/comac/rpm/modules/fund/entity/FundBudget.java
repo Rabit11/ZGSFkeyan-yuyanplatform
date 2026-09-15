@@ -29,8 +29,11 @@ public class FundBudget {
     /** 里程碑ID */
     private Long milestoneId;
 
-    /** 里程碑名称 */
+    /** 预算项名称；沿用旧列以兼容历史数据，不表示绑定里程碑。 */
+    @com.fasterxml.jackson.annotation.JsonAlias("budgetName")
     private String milestoneName;
+
+    public String getBudgetName() { return milestoneName; }
 
     /** 预算金额 */
     private BigDecimal amount;

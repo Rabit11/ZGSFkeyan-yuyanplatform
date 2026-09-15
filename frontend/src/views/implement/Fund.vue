@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
-import { fileApi, fundApi, milestoneApi, projectApi } from '@/api/modules'
+import { fileApi, fundApi, projectApi } from '@/api/modules'
 import { isSilentAuthError } from '@/api/request'
 import ProjectSelect from '@/components/ProjectSelect.vue'
 import ImplementFlowDialog from '@/components/implement/ImplementFlowDialog.vue'
@@ -29,7 +29,6 @@ const flowOpen = ref(false)
 
 const budgets = ref<any[]>([])
 const payments = ref<any[]>([])
-const milestones = ref<any[]>([])
 
 const hqYear = ref(new Date().getFullYear())
 const hqBudgets = ref<any[]>([])
@@ -57,71 +56,20 @@ const isFinanceUser = computed(() => isUnitFin.value || isHqFin.value)
 const nodeBudgets = computed(() => budgets.value.filter((b) => b.milestoneName !== '项目经费总核'))
 
 const bYear = ref(new Date().getFullYear())
-const bRemark = ref('')
-const bLines = ref<{ milestoneId: number; name: string; planDate?: string; amount: number; budgetId?: number; status?: string }[]>([])
+const bLines = ref<{ key: string; name: string; amount: number; budgetId?: number; status?: string }[]>([])
 
-type WItem = { occurDate: string; amount: number; name: string; voucherNo: string; fileName: string; fileUrl: string }
+type WItem = { id?: number; occurDate: string; amount: number; name: string; voucherNo: string; fileName: string; fileUrl: string }
 const wYear = ref(new Date().getFullYear())
-const wMsId = ref<number>()
 const wItems = ref<WItem[]>([{ occurDate: new Date().toISOString().slice(0, 10), amount: 0, name: '', voucherNo: '', fileName: '', fileUrl: '' }])
 
-function isMsClosed(m: any) {
-  return m?.status === 'DONE' || m?.colorStatus === 'GREEN'
-}
-
-const closedMs = computed(() => milestones.value.filter(isMsClosed))
-const allClosed = computed(() => milestones.value.length > 0 && closedMs.value.length === milestones.value.length)
-const hasClosedMs = computed(() => closedMs.value.length > 0)
-const fundLockMessage = computed(() => {
-  if (!milestones.value.length) return '尚未编制里程碑节点，暂无可核销的节点'
-  return `经费核销须选择已闭环的里程碑节点；当前已闭环 ${closedMs.value.length}/${milestones.value.length}`
-})
-
-/** 预算填报随里程碑绑定，无需闭环；仅需已编制里程碑节点。 */
-function requireBudgetReady() {
-  if (milestones.value.length) return true
-  message.warning('请先在里程碑管理编制节点，预算按节点绑定填报')
-  return false
-}
-
-/** 经费核销须存在已闭环节点（对应节点闭环校验在提交时执行）。 */
-function requireWriteoffReady() {
-  if (hasClosedMs.value) return true
-  message.warning(fundLockMessage.value)
-  return false
-}
-
-function paysOfMs(mid: number) {
-  return payments.value.filter((p) => Number(p.budgetId) === mid)
-}
-
-const nodeWrittenAll = computed(() =>
-  allClosed.value &&
-  closedMs.value.every((m) => {
-    const list = paysOfMs(Number(m.id))
-    return list.length > 0 && list.every((p) => p.writeoffStatus === 'WRITTEN')
-  }),
-)
-
-const selectedMs = computed(() => milestones.value.find((m) => m.id === wMsId.value))
-const nodeBudgetAmt = computed(() => {
-  const b = nodeBudgets.value.find((x) => x.milestoneId === wMsId.value)
-  return Number(b?.amount || selectedMs.value?.budget || 0)
-})
-const nodeWrittenAmt = computed(() =>
-  paysOfMs(Number(wMsId.value || 0)).filter((p) => p.writeoffStatus === 'WRITTEN').reduce((s, p) => s + Number(p.amount || 0), 0),
-)
-const nodePendingAmt = computed(() =>
-  paysOfMs(Number(wMsId.value || 0)).filter((p) => ['PENDING', 'UNIT_OK', 'DRAFT'].includes(String(p.writeoffStatus || ''))).reduce((s, p) => s + Number(p.amount || 0), 0),
-)
-const pendingWriteoffMilestones = computed(() =>
-  closedMs.value.filter((m) => {
-    const budget = nodeBudgets.value.find((b) => Number(b.milestoneId) === Number(m.id) && b.status === 'APPROVED')
-    if (!budget) return false
-    const rows = paysOfMs(Number(m.id))
-    return rows.length === 0 || rows.some((p) => p.writeoffStatus === 'DRAFT')
-  }),
-)
+const yearPayments = computed(() => payments.value.filter(p => Number(String(p.occurDate || '').slice(0, 4)) === Number(wYear.value)))
+const yearApprovedBudget = computed(() => nodeBudgets.value.filter(b => Number(b.year) === Number(wYear.value) && b.status === 'APPROVED').reduce((sum, b) => sum + Number(b.amount || 0), 0))
+const yearWrittenAmount = computed(() => yearPayments.value.filter(p => p.writeoffStatus === 'WRITTEN').reduce((sum,p) => sum + Number(p.amount || 0), 0))
+const yearPendingAmount = computed(() => yearPayments.value.filter(p => p.writeoffStatus !== 'WRITTEN').reduce((sum,p) => sum + Number(p.amount || 0), 0))
+function requireBudgetReady() { return !!projectId.value }
+function requireWriteoffReady() { return !!projectId.value }
+function editableBudgetLine(line: any) { return !budgetReadonly.value && (!line.status || line.status === 'DRAFT') }
+function addBudgetLine() { bLines.value.push({ key: 'new-' + Date.now() + '-' + Math.random(), name: '', amount: 0 }) }
 
 const wBatchTotal = computed(() => wItems.value.reduce((s, x) => s + Number(x.amount || 0), 0))
 
@@ -129,7 +77,7 @@ const financeRoleProfile = computed(() => {
   if (isHqFin.value) {
     return {
       title: '总部财务主管工作台',
-      desc: '负责总部年度预算总盘子、二级单位额度拨付、项目节点预算复核备案。',
+      desc: '负责总部年度预算总盘子、二级单位额度拨付、项目预算项复核备案。',
       role: '总部财务',
     }
   }
@@ -147,38 +95,38 @@ const financeRoleProfile = computed(() => {
       role: '单位财务经办',
     }
   }
-  return { title: '项目经费工作台', desc: '项目团队按里程碑闭环结果填报预算与查看核销。', role: '项目团队' }
+  return { title: '项目经费工作台', desc: '项目团队填报年度预算并查看费用执行。', role: '项目团队' }
 })
 
 const financeCounts = computed(() => ({
   unitBudget: nodeBudgets.value.filter((b) => b.status === 'PENDING').length,
   hqBudget: nodeBudgets.value.filter((b) => b.status === 'UNIT_OK').length,
-  writeoffUpload: pendingWriteoffMilestones.value.length,
+  writeoffUpload: nodeBudgets.value.filter(b => b.status === 'APPROVED').length,
   writeoffSubmit: payments.value.filter((p) => p.writeoffStatus === 'DRAFT').length,
   unitWriteoff: payments.value.filter((p) => ['PENDING', 'UNIT_OK'].includes(String(p.writeoffStatus || ''))).length,
   hqWriteoff: 0,
 }))
 
-const hasUnitBudgetReview = computed(() => isUnitFin.value && nodeBudgets.value.some((b) => b.status === 'PENDING'))
-const hasHqBudgetReview = computed(() => isHqFin.value && nodeBudgets.value.some((b) => b.status === 'UNIT_OK'))
+const hasUnitBudgetReview = computed(() => isUnitFin.value && nodeBudgets.value.some((b) => Number(b.year) === Number(bYear.value) && b.status === 'PENDING'))
+const hasHqBudgetReview = computed(() => isHqFin.value && nodeBudgets.value.some((b) => Number(b.year) === Number(bYear.value) && b.status === 'UNIT_OK'))
 const canAuditBudgetPage = computed(() => hasUnitBudgetReview.value || hasHqBudgetReview.value)
 const budgetPageTitle = computed(() => {
   if (hasUnitBudgetReview.value) return '经费预算审核'
   if (hasHqBudgetReview.value) return '经费预算复核备案'
-  return budgetReadonly.value ? '查看经费预算填报' : '按里程碑节点填报经费预算'
+  return budgetReadonly.value ? '查看经费预算填报' : '填报项目年度经费预算'
 })
 const budgetPageHint = computed(() => {
-  if (hasUnitBudgetReview.value) return '当前节点为二级单位财务审核，请核对各里程碑节点预算后选择审核通过或退回项目团队。'
-  if (hasHqBudgetReview.value) return '当前节点为总部财务复核备案，请核对二级单位已审核的节点预算后选择复核通过或退回二级单位财务。'
-  if (budgetReadonly.value) return '只读查看已填或待填节点预算，不改动审签状态。'
-  return '项目团队按里程碑节点填报预算（无需等待里程碑闭环）；审核通过后汇总为本年度预算并同步经费台账。团队成员可暂存，负责人提交审签。'
+  if (hasUnitBudgetReview.value) return '当前节点为二级单位财务审核，请核对各预算项后选择审核通过或退回项目团队。'
+  if (hasHqBudgetReview.value) return '当前节点为总部财务复核备案，请核对二级单位已审核的预算项后选择复核通过或退回二级单位财务。'
+  if (budgetReadonly.value) return '只读查看已填或待填预算项，不改动审签状态。'
+  return '项目团队按项目年度和预算项填报预算；审核通过后汇总为本年度预算并同步经费台账。团队成员可暂存，负责人提交审签。'
 })
 
 const financeTaskCards = computed(() => {
   const cards: { key: string; title: string; count: number; desc: string; action: string; disabled?: boolean }[] = []
   if (isUnitFin.value) {
     cards.push({ key: 'unitBudget', title: '预算待审', count: financeCounts.value.unitBudget, desc: '项目团队提交后由二级单位财务先审。', action: '去审核' })
-    cards.push({ key: 'writeoff', title: isFinHead.value ? '核销上传/办理' : '核销登记', count: isFinHead.value ? financeCounts.value.writeoffUpload + financeCounts.value.unitWriteoff : financeCounts.value.writeoffSubmit, desc: isFinHead.value ? '对应里程碑闭环后上传付款凭证并完成本级核销，系统同步总部经费看板。' : '按已闭环里程碑节点登记付款凭证。', action: isFinHead.value ? '去办理' : '去登记', disabled: !hasClosedMs.value })
+    cards.push({ key: 'writeoff', title: isFinHead.value ? '核销上传/办理' : '核销登记', count: isFinHead.value ? financeCounts.value.writeoffUpload + financeCounts.value.unitWriteoff : financeCounts.value.writeoffSubmit, desc: isFinHead.value ? '按实际费用上传付款凭证并完成本级核销，系统同步总部经费看板。' : '查看项目年度付款凭证。', action: isFinHead.value ? '去办理' : '去登记', disabled: !writeoffCan.value.fill })
   }
   if (isHqFin.value) {
     cards.push({ key: 'hqBudget', title: '预算复核备案', count: financeCounts.value.hqBudget, desc: '二级单位财务通过后由总部财务复核备案。', action: '去复核' })
@@ -188,15 +136,12 @@ const financeTaskCards = computed(() => {
 })
 
 const financeExecFlow = computed(() => [
-  { no: '1', title: '里程碑节点编制', desc: `预算按节点绑定填报，核销时对应节点需闭环（已闭环 ${closedMs.value.length}/${milestones.value.length}）`, state: milestones.value.length ? 'done' : 'todo' },
-  { no: '2', title: '项目团队预算填报', desc: '负责人提交审签，项目联系人权限负责人全部具备', state: nodeBudgets.value.some((b) => ['PENDING', 'UNIT_OK', 'APPROVED'].includes(b.status)) ? 'done' : 'todo' },
-  { no: '3', title: '二级单位财务审核', desc: '单位财务负责人/经办处理预算审核', state: nodeBudgets.value.some((b) => b.status === 'PENDING') ? 'current' : nodeBudgets.value.some((b) => ['UNIT_OK', 'APPROVED'].includes(b.status)) ? 'done' : 'todo' },
-  { no: '4', title: '总部财务复核备案', desc: '总部财务主管复核预算并备案生效', state: nodeBudgets.value.some((b) => b.status === 'UNIT_OK') ? 'current' : nodeBudgets.value.some((b) => b.status === 'APPROVED') ? 'done' : 'todo' },
-  { no: '5', title: '节点核销', desc: '对应里程碑闭环后，二级单位财务上传付款凭证完成本级核销并同步总部看板', state: nodeWrittenAll.value ? 'done' : hasClosedMs.value && (payments.value.length > 0 || nodeBudgets.value.some((b) => b.status === 'APPROVED')) ? 'current' : 'todo' },
-].map((step) => ({
-  ...step,
-  statusText: step.state === 'done' ? '已完成' : step.state === 'current' ? '当前办理' : '未开始',
-})))
+  { no: '1', title: '项目团队预算填报', desc: '按项目、年度和预算项填报，负责人提交审签', state: nodeBudgets.value.some(b => b.status !== 'DRAFT') ? 'done' : 'current' },
+  { no: '2', title: '二级单位财务审核', desc: '核对预算内容，审核通过或退回补正', state: nodeBudgets.value.some(b => b.status === 'PENDING') ? 'current' : nodeBudgets.value.some(b => ['UNIT_OK','APPROVED'].includes(b.status)) ? 'done' : 'todo' },
+  { no: '3', title: '总部财务复核备案', desc: '复核通过后预算备案生效', state: nodeBudgets.value.some(b => b.status === 'UNIT_OK') ? 'current' : nodeBudgets.value.some(b => b.status === 'APPROVED') ? 'done' : 'todo' },
+  { no: '4', title: '单位财务凭证核销', desc: '按费用发生年度上传付款凭证并完成本级核销，可分批办理', state: payments.value.some(p => p.writeoffStatus !== 'WRITTEN') ? 'current' : payments.value.length ? 'done' : nodeBudgets.value.some(b => b.status === 'APPROVED') ? 'current' : 'todo' },
+  { no: '5', title: '同步经费看板', desc: '已核销金额及红冲抵减自动汇总，后续核销继续更新', state: payments.value.some(p => p.writeoffStatus === 'WRITTEN') ? 'done' : 'todo' },
+].map(step => ({ ...step, statusText: step.state === 'done' ? '已完成' : step.state === 'current' ? '当前办理' : '未开始' })))
 
 async function loadExec() {
   if (!projectId.value) return
@@ -204,31 +149,26 @@ async function loadExec() {
   const requestId = ++execRequest
   loading.value = true
   try {
-    const [a, b, m, p] = await Promise.all([
+    const [a, b, p] = await Promise.all([
       fundApi.budgets(requestedProjectId),
       fundApi.payments(requestedProjectId),
-      milestoneApi.list(requestedProjectId),
       projectApi.detail(requestedProjectId),
     ])
     if (requestId !== execRequest || requestedProjectId !== projectId.value) return
     const switchedProject = Number(project.value?.id) !== Number(requestedProjectId)
     budgets.value = (a.data as any[]) || []
     payments.value = (b.data as any[]) || []
-    milestones.value = (m.data as any[]) || []
     project.value = p.data
     if (switchedProject && page.value === 'budget') openBudget()
     if (switchedProject && page.value === 'writeoff') {
       wItems.value = [{ occurDate: new Date().toISOString().slice(0, 10), amount: 0, name: '', voucherNo: '', fileName: '', fileUrl: '' }]
-      wMsId.value = (pendingWriteoffMilestones.value[0] || closedMs.value[0])?.id
     }
   } catch (error: any) {
     if (requestId !== execRequest || requestedProjectId !== projectId.value) return
     project.value = null
     budgets.value = []
     payments.value = []
-    milestones.value = []
     bLines.value = []
-    wMsId.value = undefined
     if (!isSilentAuthError(error)) message.error('经费数据加载失败，请重新选择项目或刷新页面')
   } finally {
     if (requestId === execRequest) loading.value = false
@@ -272,19 +212,14 @@ function applyMode(mode?: string) {
 
 function openBudget() {
   tab.value = 'exec'
-  const yearMs = milestones.value.filter((x) => !x.year || Number(x.year) === Number(bYear.value))
-  const src = yearMs.length ? yearMs : milestones.value
-  bLines.value = src.map((m) => {
-    const hit = nodeBudgets.value.find((b) => b.milestoneId === m.id)
-    return {
-      milestoneId: m.id,
-      name: m.name,
-      planDate: m.planDate,
-      amount: Number(hit?.amount ?? m.budget ?? 0),
-      budgetId: hit?.id,
-      status: hit?.status,
-    }
-  })
+  if (page.value !== 'budget') {
+    const pending = nodeBudgets.value.find(b => isUnitFin.value ? b.status === 'PENDING' : isHqFin.value && b.status === 'UNIT_OK')
+    if (pending) bYear.value = Number(pending.year)
+  }
+  bLines.value = nodeBudgets.value.filter(b => Number(b.year) === Number(bYear.value)).map(b => ({
+    key: String(b.id), name: b.budgetName || b.milestoneName || '预算项', amount: Number(b.amount || 0), budgetId: b.id, status: b.status,
+  }))
+  if (!bLines.value.length && !budgetReadonly.value) addBudgetLine()
   page.value = 'budget'
 }
 
@@ -311,8 +246,6 @@ function openWriteoff() {
   if (!requireWriteoffReady()) return
   tab.value = 'exec'
   wItems.value = [{ occurDate: new Date().toISOString().slice(0, 10), amount: 0, name: '', voucherNo: '', fileName: '', fileUrl: '' }]
-  const preferred = pendingWriteoffMilestones.value[0] || closedMs.value[0]
-  wMsId.value = preferred?.id
   page.value = 'writeoff'
 }
 
@@ -401,24 +334,47 @@ function budgetStatusText(st?: string) {
   )[st || ''] || '未填报'
 }
 
+function validateBudgetLines(submitting: boolean) {
+  const lines = bLines.value.filter(editableBudgetLine)
+  if (!lines.length) { message.warning('请添加或补正预算项'); return false }
+  if (lines.some(l => !l.name.trim() || !Number.isFinite(Number(l.amount)) || l.amount < 0 || (submitting && l.amount <= 0))) {
+    message.warning('请填写预算项名称及有效金额，提交金额须大于零'); return false
+  }
+  return true
+}
+async function removeBudgetLine(line: any) {
+  if (!editableBudgetLine(line)) return
+  if (line.budgetId) await fundApi.removeBudget(line.budgetId)
+  bLines.value = bLines.value.filter(l => l.key !== line.key)
+  if (line.budgetId) budgets.value = budgets.value.filter(b => b.id !== line.budgetId)
+}
+function editPaymentDraft(row: any) {
+  if (writeoffReadonly.value || row.writeoffStatus !== 'DRAFT') return
+  const material = parseRemark(row)
+  wYear.value = Number(String(row.occurDate || '').slice(0,4)) || new Date().getFullYear()
+  wItems.value = [{ id: row.id, occurDate: row.occurDate, amount: Number(row.amount || 0), voucherNo: row.voucherNo || '', name: material.name, fileName: material.fileName, fileUrl: material.fileUrl }]
+  page.value = 'writeoff'
+}
+
 async function persistBudgetLines(status: string) {
-  for (const line of bLines.value) {
+  for (const line of bLines.value.filter(editableBudgetLine)) {
     const payload = {
       projectId: projectId.value,
       year: bYear.value,
-      milestoneId: line.milestoneId,
-      milestoneName: line.name,
+      budgetName: line.name,
       amount: line.amount,
       status,
     }
     if (line.budgetId) await fundApi.updateBudget(line.budgetId, payload)
-    else await fundApi.createBudget(payload)
+    else { const result = await fundApi.createBudget(payload); line.budgetId = Number(result.data) }
+    line.status = status
   }
 }
 
 async function saveBudgetDraft() {
   if (!requireBudgetReady()) return
   if (!budgetGuard('fill')) return
+  if (!validateBudgetLines(false)) return
   await persistBudgetLines('DRAFT')
   message.success('已暂存，负责人可见并可提交审签')
   await loadExec()
@@ -428,7 +384,8 @@ async function saveBudgetDraft() {
 async function submitBudget() {
   if (!requireBudgetReady()) return
   if (!budgetGuard('submit')) return
-  if (!bLines.value.length) return message.warning('请先编制里程碑节点')
+  if (!bLines.value.some(editableBudgetLine)) return message.warning('请添加或补正预算项后提交')
+  if (!validateBudgetLines(true)) return
   await persistBudgetLines('PENDING')
   message.success('已提交：二级单位财务部门审核 → 总部财务团队复核备案')
   await loadExec()
@@ -438,25 +395,27 @@ async function submitBudget() {
 async function auditBudgetUnit(pass: boolean) {
   if (!budgetGuard('audit')) return
   if (!isUnitFin.value) return message.warning('须二级单位财务审核')
-  const pending = nodeBudgets.value.filter((b) => b.status === 'PENDING')
+  const pending = nodeBudgets.value.filter((b) => Number(b.year) === Number(bYear.value) && b.status === 'PENDING')
   if (!pending.length) return message.warning('暂无待审预算')
   for (const b of pending) {
     await fundApi.updateBudget(b.id, { ...b, status: pass ? 'UNIT_OK' : 'DRAFT' })
   }
   message.success(pass ? '二级单位财务已通过，待总部复核备案' : '已退回项目团队')
-  loadExec()
+  await loadExec()
+  openBudget()
 }
 
 async function auditBudgetHq(pass: boolean) {
   if (!budgetGuard('audit')) return
   if (!isHqFin.value) return message.warning('须总部财务复核')
-  const pending = nodeBudgets.value.filter((b) => b.status === 'UNIT_OK')
+  const pending = nodeBudgets.value.filter((b) => Number(b.year) === Number(bYear.value) && b.status === 'UNIT_OK')
   if (!pending.length) return message.warning('暂无待复核预算')
   for (const b of pending) {
     await fundApi.updateBudget(b.id, { ...b, status: pass ? 'APPROVED' : 'PENDING' })
   }
-  message.success(pass ? '总部已复核备案，节点预算生效' : '已退回二级单位财务')
-  loadExec()
+  message.success(pass ? '总部已复核备案，预算项生效' : '已退回二级单位财务')
+  await loadExec()
+  openBudget()
 }
 
 function addWItem() {
@@ -475,7 +434,6 @@ async function uploadWFile(item: WItem, file: File) {
 async function saveWriteoff(asDraft: boolean) {
   if (savingWriteoff.value) return
   if (!requireWriteoffReady()) return
-  if (!wMsId.value) return message.warning('请选择对应里程碑节点')
   if (!asDraft && !writeoffGuard('submit')) return
   if (asDraft && !writeoffGuard('fill')) return
   if (!wItems.value.length) return message.warning('请至少添加一条核销明细')
@@ -484,18 +442,16 @@ async function saveWriteoff(asDraft: boolean) {
     if (!Number.isFinite(Number(it.amount)) || Number(it.amount) < 0 || (!asDraft && Number(it.amount) <= 0)) {
       return message.warning('核销金额须为有效数字，正式提交须大于零')
     }
-    if (!asDraft && (!it.name?.trim() || !it.fileUrl?.trim() || !it.occurDate)) {
-      return message.warning('核销日期、用途与材料为必填')
+    if (!asDraft && (!it.name?.trim() || !it.fileUrl?.trim() || !it.occurDate || !it.voucherNo?.trim())) {
+      return message.warning('核销日期、用途、凭证号与材料为必填')
     }
   }
   const batchProjectId = projectId.value
-  const batchMilestoneId = wMsId.value
   savingWriteoff.value = true
   try {
     for (const it of batch) {
-      await fundApi.createPayment({
+      const payload = {
       projectId: batchProjectId,
-      budgetId: batchMilestoneId,
       flowType: 'WRITEOFF',
       amount: it.amount,
       voucherNo: it.voucherNo,
@@ -503,7 +459,9 @@ async function saveWriteoff(asDraft: boolean) {
       writeoffStatus: asDraft ? 'DRAFT' : 'WRITTEN',
       operator: user.realName,
       remark: `${it.name}||${it.fileName}||${it.fileUrl}`,
-      })
+      }
+      if (it.id) await fundApi.updatePayment(it.id, payload)
+      else await fundApi.createPayment(payload)
       // 已确认保存的行移出本次表单，后续行失败后重试不会重发这些行。
       wItems.value.shift()
     }
@@ -518,8 +476,8 @@ async function saveWriteoff(asDraft: boolean) {
 }
 
 function canProcessPayment(row: any) {
-  if (!hasClosedMs.value || row.writeoffStatus === 'WRITTEN' || row.writeoffStatus === 'DRAFT') return false
-  if (['PENDING', 'UNIT_OK'].includes(String(row.writeoffStatus || ''))) return isFinHead.value || user.isAdmin
+  if (row.writeoffStatus === 'WRITTEN' || row.writeoffStatus === 'DRAFT') return false
+  if (['PENDING', 'UNIT_OK'].includes(String(row.writeoffStatus || ''))) return isFinHead.value && writeoffCan.value.fill
   return false
 }
 
@@ -541,7 +499,7 @@ function isReverseRow(row: any) {
 }
 
 function canReversePayment(row: any) {
-  return row.writeoffStatus === 'WRITTEN' && !isReverseRow(row) && (isFinHead.value || user.isAdmin)
+  return row.writeoffStatus === 'WRITTEN' && !isReverseRow(row) && (isFinHead.value && writeoffCan.value.fill)
 }
 
 async function reversePayment(row: any) {
@@ -615,7 +573,6 @@ const TRANSFER_STATUS: Record<string, string> = {
 
 const overview = computed(() => ({
   project: project.value,
-  milestones: milestones.value,
   budgets: budgets.value,
   payments: payments.value,
 }))
@@ -636,8 +593,8 @@ function backList() {
   <div class="page-container fund-page">
     <h2 class="page-title">项目经费</h2>
     <div class="page-desc">
-      <b>预算按里程碑节点填报，无需等待里程碑闭环；</b>
-      经费核销须在对应里程碑节点闭环后办理。依次执行经费预算填报与审批、经费核销；经费数据同步总部看板，异常数据由两级财务联合核查。
+      <b>按项目年度填报预算，按实际费用及付款凭证办理核销。</b>
+      预算经单位财务审核、总部财务复核备案后，由单位财务办理核销；经费数据同步总部看板，异常数据由两级财务联合核查。
     </div>
     <WorkDutyBar v-if="page !== 'writeoff'" code="fund_budget" :project="project" />
     <WorkDutyBar v-if="page === 'writeoff'" code="fund_writeoff" :project="project" />
@@ -650,11 +607,11 @@ function backList() {
           <a-tag color="blue">{{ project.channelCode || project.channelName || '项目渠道' }}</a-tag>
           <span>负责人：{{ project.ownerName || project.leaderName || '—' }}</span>
           <span>总经费：{{ fmtAmount(project.totalFund) }} 万元</span>
-          <span>里程碑：{{ closedMs.length }}/{{ milestones.length }} 已闭环</span>
+          <span>已备案预算：{{ fmtAmount(execStat.budget) }} 万元</span>
         </div>
       </div>
       <a-space>
-        <a-tag :color="allClosed ? 'green' : hasClosedMs ? 'blue' : 'orange'">{{ allClosed ? '里程碑全部闭环' : hasClosedMs ? '可填报预算/部分节点可核销' : '可填报预算·待节点闭环后核销' }}</a-tag>
+        <a-tag color="blue">项目年度经费管理</a-tag>
         <a-button size="small" @click="flowOpen = true">查看经费流转</a-button>
       </a-space>
     </div>
@@ -662,29 +619,6 @@ function backList() {
     <a-card class="fund-main-card" :loading="loading" :body-style="{ padding: '16px 20px' }">
       <a-tabs v-model:activeKey="tab">
         <a-tab-pane key="exec" tab="经费执行管理（项目级）">
-          <a-alert
-            v-if="!milestones.length"
-            type="warning"
-            show-icon
-            style="margin: 8px 0 12px"
-            message="尚未编制里程碑节点"
-            description="请先在里程碑管理编制节点；预算按节点绑定填报，核销须在对应节点闭环后办理。"
-          />
-          <a-alert
-            v-else-if="!hasClosedMs"
-            type="info"
-            show-icon
-            style="margin: 8px 0 12px"
-            message="可按里程碑节点填报经费预算"
-            :description="`经费核销须在对应里程碑节点闭环后办理；当前已闭环 ${closedMs.length}/${milestones.length}。`"
-          />
-          <a-alert
-            v-else
-            type="success"
-            show-icon
-            style="margin: 8px 0 12px"
-            :message="allClosed ? '全部里程碑节点已闭环，可办理各节点核销' : `预算填报开放，已闭环节点可办理核销（${closedMs.length}/${milestones.length}）`"
-          />
           <div class="toolbar fund-toolbar">
             <a-space>
               <span>选择项目：</span>
@@ -692,8 +626,8 @@ function backList() {
             </a-space>
             <a-space v-if="page === 'list'">
               <a-button @click="openBudgetView">查看填报</a-button>
-              <a-button :disabled="!milestones.length" @click="goFillBudget"><PlusOutlined />预算填报</a-button>
-              <a-button type="primary" :disabled="!hasClosedMs" @click="openWriteoff"><PlusOutlined />核销信息填报</a-button>
+              <a-button :disabled="!projectId || !budgetCan.fill" @click="goFillBudget"><PlusOutlined />预算填报</a-button>
+              <a-button type="primary" :disabled="!projectId || !writeoffCan.fill" @click="openWriteoff"><PlusOutlined />核销信息填报</a-button>
             </a-space>
           </div>
 
@@ -732,7 +666,7 @@ function backList() {
               </div>
             </div>
             <a-row :gutter="[16, 16]" class="stat-row">
-              <a-col :xs="24" :sm="12" :xl="6"><div class="stat-card"><div class="label">已备案节点预算(万元)</div><div class="value">{{ fmtAmount(execStat.budget) }}</div></div></a-col>
+              <a-col :xs="24" :sm="12" :xl="6"><div class="stat-card"><div class="label">已备案预算(万元)</div><div class="value">{{ fmtAmount(execStat.budget) }}</div></div></a-col>
               <a-col :xs="24" :sm="12" :xl="6"><div class="stat-card"><div class="label">累计核销申报(万元)</div><div class="value">{{ fmtAmount(execStat.paid) }}</div></div></a-col>
               <a-col :xs="24" :sm="12" :xl="6"><div class="stat-card ok"><div class="label">已核销(万元)</div><div class="value">{{ fmtAmount(execStat.written) }}</div></div></a-col>
               <a-col :xs="24" :sm="12" :xl="6"><div class="stat-card"><div class="label">核销率</div><div class="value">{{ execStat.rate.toFixed(1) }}%</div></div></a-col>
@@ -741,18 +675,19 @@ function backList() {
             <a-row :gutter="[16, 16]">
               <a-col :xs="24" :xl="12">
                 <div class="sec-hd">
-                  <span>节点预算（绑定里程碑）</span>
+                  <span>项目年度预算</span>
                   <a-space>
-                    <a-button v-if="isUnitFin && nodeBudgets.some(b => b.status === 'PENDING')" size="small" type="primary" @click="auditBudgetUnit(true)">二级财务审核通过</a-button>
-                    <a-button v-if="isHqFin && nodeBudgets.some(b => b.status === 'UNIT_OK')" size="small" type="primary" @click="auditBudgetHq(true)">总部复核备案</a-button>
+                    <a-button v-if="isUnitFin && nodeBudgets.some(b => b.status === 'PENDING')" size="small" type="primary" @click="openBudget">查看待审预算</a-button>
+                    <a-button v-if="isHqFin && nodeBudgets.some(b => b.status === 'UNIT_OK')" size="small" type="primary" @click="openBudget">查看待复核预算</a-button>
                   </a-space>
                 </div>
                 <a-table class="fund-table" size="small" row-key="id" :pagination="false" :data-source="nodeBudgets"
                   :columns="[
                     { title: '年度', dataIndex: 'year', width: 80 },
-                    { title: '里程碑', dataIndex: 'milestoneName' },
+                    { title: '预算项', dataIndex: 'budgetName' },
                     { title: '金额(万元)', dataIndex: 'amount', width: 110, align: 'right' },
                     { title: '状态', dataIndex: 'status', width: 140 },
+                { title: '操作', key: 'remove', width: 70 },
                   ]">
                   <template #bodyCell="{ column, record }">
                     <template v-if="column.dataIndex === 'amount'"><span class="num-col">{{ fmtAmount(record.amount) }}</span></template>
@@ -768,7 +703,7 @@ function backList() {
                 <div class="sec-hd">付款 / 核销明细</div>
                 <a-table class="fund-table" size="small" row-key="id" :pagination="false" :data-source="payments"
                   :columns="[
-                    { title: '节点', dataIndex: 'budgetId', width: 80 },
+                    { title: '发生日期', dataIndex: 'occurDate', width: 110 },
                     { title: '用途', key: 'name' },
                     { title: '金额(万元)', dataIndex: 'amount', width: 100, align: 'right' },
                     { title: '核销', dataIndex: 'writeoffStatus', width: 120 },
@@ -783,7 +718,8 @@ function backList() {
                       <a-tag :color="record.writeoffStatus === 'WRITTEN' ? 'green' : record.writeoffStatus === 'UNIT_OK' ? 'blue' : record.writeoffStatus === 'DRAFT' ? 'default' : 'orange'">{{ payStatusText(record.writeoffStatus) }}</a-tag>
                     </template>
                     <template v-else-if="column.key === 'act'">
-                      <a-button v-if="canProcessPayment(record)" type="link" size="small" @click="unitWriteoff(record)">{{ paymentActionText(record) }}</a-button>
+                      <a-button v-if="record.writeoffStatus === 'DRAFT' && !writeoffReadonly" type="link" size="small" @click="editPaymentDraft(record)">继续填报</a-button>
+                      <a-button v-else-if="canProcessPayment(record)" type="link" size="small" @click="unitWriteoff(record)">{{ paymentActionText(record) }}</a-button>
                       <a-button v-else-if="canReversePayment(record)" type="link" size="small" danger @click="reversePayment(record)">红冲</a-button>
                       <span v-else>—</span>
                     </template>
@@ -797,26 +733,27 @@ function backList() {
           <template v-else-if="page === 'budget'">
             <h3 class="form-title">{{ budgetPageTitle }}</h3>
             <p class="form-hint">{{ budgetPageHint }}</p>
-            <div class="flow-banner">全部里程碑闭环 → 项目团队提报 → 二级单位财务部门审核 → 总部财务团队复核备案</div>
+            <div class="flow-banner">项目团队提报 → 二级单位财务部门审核 → 总部财务团队复核备案</div>
             <p class="proj-line">
-              {{ project?.projectNo }} {{ project?.name }}　项目总经费 {{ fmtAmount(project?.totalFund) }} 万元。节点预算审核通过后汇总形成本年度预算。
+              {{ project?.projectNo }} {{ project?.name }}　项目总经费 {{ fmtAmount(project?.totalFund) }} 万元。预算项审核通过后汇总形成本年度预算。
             </p>
             <a-form class="budget-year-form" layout="vertical">
-              <a-form-item label="预算年度"><a-input-number v-model:value="bYear" :disabled="budgetReadonly" style="width: 100%" @change="openBudget" /></a-form-item>
+              <a-form-item label="预算年度"><a-input-number v-model:value="bYear" :min="2000" :max="2100" style="width: 100%" @change="openBudget" /></a-form-item>
             </a-form>
-            <a-table class="fund-table" size="small" row-key="milestoneId" :pagination="false" :data-source="bLines"
+            <a-table class="fund-table" size="small" row-key="key" :pagination="false" :data-source="bLines"
               :columns="[
                 { title: '序号', key: 'idx', width: 70 },
-                { title: '里程碑节点', dataIndex: 'name' },
-                { title: '计划完成日期', dataIndex: 'planDate', width: 140 },
-                { title: '节点预算(万元)', dataIndex: 'amount', width: 180 },
+                { title: '预算项名称', dataIndex: 'name' },
+                { title: '预算项(万元)', dataIndex: 'amount', width: 180 },
                 { title: '状态', dataIndex: 'status', width: 140 },
+                { title: '操作', key: 'remove', width: 70 },
               ]">
               <template #bodyCell="{ column, record, index }">
                 <template v-if="column.key === 'idx'">{{ index + 1 }}</template>
-                <template v-else-if="column.dataIndex === 'planDate'">{{ fmtDate(record.planDate) }}</template>
+                <template v-else-if="column.key === 'remove'"><a-button v-if="editableBudgetLine(record)" type="link" danger @click="removeBudgetLine(record)">删除</a-button></template>
+                <template v-else-if="column.dataIndex === 'name'"><a-input v-model:value="record.name" :disabled="!editableBudgetLine(record)" placeholder="如试验费、外协费" /></template>
                 <template v-else-if="column.dataIndex === 'amount'">
-                  <a-input-number v-model:value="record.amount" :min="0" :disabled="budgetReadonly" style="width: 100%" />
+                  <a-input-number v-model:value="record.amount" :min="0" :disabled="!editableBudgetLine(record)" style="width: 100%" />
                 </template>
                 <template v-else-if="column.dataIndex === 'status'">
                   <a-tag :color="record.status === 'APPROVED' ? 'green' : record.status === 'DRAFT' ? 'default' : record.status ? 'orange' : 'default'">
@@ -825,12 +762,8 @@ function backList() {
                 </template>
               </template>
             </a-table>
-            <div class="sum-line">节点数：{{ bLines.length }}　本年度预算合计：<b>{{ fmtAmount(yearBudgetSum) }} 万元</b></div>
-            <a-form layout="vertical" style="margin-top: 12px">
-              <a-form-item label="预算说明（选填）">
-                <a-textarea v-model:value="bRemark" :rows="3" :disabled="budgetReadonly" placeholder="经费范围、用途说明" />
-              </a-form-item>
-            </a-form>
+            <a-button v-if="!budgetReadonly" type="dashed" block @click="addBudgetLine">+ 添加预算项</a-button>
+            <div class="sum-line">预算项数：{{ bLines.length }}　本年度预算合计：<b>{{ fmtAmount(yearBudgetSum) }} 万元</b></div>
             <div class="form-actions">
               <a-button @click="backList">返回</a-button>
               <template v-if="hasUnitBudgetReview">
@@ -851,30 +784,22 @@ function backList() {
           <!-- 图三 核销 -->
           <template v-else-if="page === 'writeoff'">
             <h3 class="form-title">{{ writeoffReadonly ? '查看经费核销' : `${project?.projectNo || ''} ${project?.name || ''} · 经费核销` }}</h3>
-            <p class="form-hint">{{ writeoffReadonly ? (!hasClosedMs ? fundLockMessage : '只读查看已填或待填核销明细。') : '选择已闭环的里程碑节点，二级单位财务负责人上传付款凭证并填报核销信息；提交后即完成本级核销，数据自动同步至总部经费看板。' }}</p>
-            <div class="flow-banner">对应节点闭环 → 二级单位财务上传付款凭证 → 完成本级核销 → 系统自动同步总部经费看板</div>
+            <p class="form-hint">{{ writeoffReadonly ? '只读查看项目年度核销明细。' : '单位财务按实际费用填写日期、金额、用途和凭证编号，上传真实付款凭证后完成本级核销。' }}</p>
+            <div class="flow-banner">二级单位财务上传付款凭证 → 完成本级核销 → 系统自动同步总部经费看板</div>
             <a-row :gutter="[12, 12]" class="stat-row">
-              <a-col :xs="24" :sm="12" :xl="6"><div class="stat-card"><div class="label">节点预算</div><div class="value">{{ wMsId ? fmtAmount(nodeBudgetAmt) : '—' }}</div></div></a-col>
-              <a-col :xs="24" :sm="12" :xl="6"><div class="stat-card ok"><div class="label">已核销</div><div class="value">{{ fmtAmount(nodeWrittenAmt) }}</div></div></a-col>
-              <a-col :xs="24" :sm="12" :xl="6"><div class="stat-card"><div class="label">审核中</div><div class="value">{{ fmtAmount(nodePendingAmt) }}</div></div></a-col>
-              <a-col :xs="24" :sm="12" :xl="6"><div class="stat-card"><div class="label">节点剩余</div><div class="value">{{ wMsId ? fmtAmount(nodeBudgetAmt - nodeWrittenAmt - nodePendingAmt) : '—' }}</div></div></a-col>
+              <a-col :xs="24" :sm="12" :xl="6"><div class="stat-card"><div class="label">年度已备案预算</div><div class="value">{{ fmtAmount(yearApprovedBudget) }}</div></div></a-col>
+              <a-col :xs="24" :sm="12" :xl="6"><div class="stat-card ok"><div class="label">已核销</div><div class="value">{{ fmtAmount(yearWrittenAmount) }}</div></div></a-col>
+              <a-col :xs="24" :sm="12" :xl="6"><div class="stat-card"><div class="label">待办理金额</div><div class="value">{{ fmtAmount(yearPendingAmount) }}</div></div></a-col>
+              <a-col :xs="24" :sm="12" :xl="6"><div class="stat-card"><div class="label">年度剩余</div><div class="value">{{ fmtAmount(yearApprovedBudget - yearWrittenAmount - yearPendingAmount) }}</div></div></a-col>
             </a-row>
             <a-form layout="vertical">
               <a-row :gutter="16">
                 <a-col :xs="24" :md="8">
-                  <a-form-item label="预算年度">
-                    <a-input :value="String(wYear)" disabled />
+                  <a-form-item label="统计年度（核销归属按费用发生日期）">
+                    <a-input-number v-model:value="wYear" :min="2000" :max="2100" :disabled="savingWriteoff" />
                   </a-form-item>
                 </a-col>
-                <a-col :xs="24" :md="16">
-                  <a-form-item label="对应里程碑节点" required>
-                    <a-select v-model:value="wMsId" placeholder="请选择本次核销对应的已闭环节点" allow-clear :disabled="writeoffReadonly || savingWriteoff">
-                      <a-select-option v-for="m in closedMs" :key="m.id" :value="m.id">
-                        {{ m.name }}（已闭环）
-                      </a-select-option>
-                    </a-select>
-                  </a-form-item>
-                </a-col>
+
               </a-row>
             </a-form>
             <div class="sec-hd">本次核销明细</div>
@@ -883,7 +808,7 @@ function backList() {
               <a-row :gutter="12" :inert="savingWriteoff ? true : undefined">
                 <a-col :xs="24" :md="8"><a-form-item label="费用发生日期" required><a-date-picker v-model:value="it.occurDate" :disabled="writeoffReadonly" style="width: 100%" value-format="YYYY-MM-DD" /></a-form-item></a-col>
                 <a-col :xs="24" :md="8"><a-form-item label="核销金额（万元）" required><a-input-number v-model:value="it.amount" :disabled="writeoffReadonly" style="width: 100%" /></a-form-item></a-col>
-                <a-col :xs="24" :md="8"><a-form-item label="凭证编号"><a-input v-model:value="it.voucherNo" :disabled="writeoffReadonly" /></a-form-item></a-col>
+                <a-col :xs="24" :md="8"><a-form-item label="凭证编号" required><a-input v-model:value="it.voucherNo" :disabled="writeoffReadonly" /></a-form-item></a-col>
                 <a-col :xs="24" :md="12"><a-form-item label="核销项名称/用途" required><a-input v-model:value="it.name" :disabled="writeoffReadonly" placeholder="如试验件采购、外协测试费" /></a-form-item></a-col>
                 <a-col :xs="24" :md="12">
                   <a-form-item label="核销材料（必传）">
@@ -897,7 +822,7 @@ function backList() {
               </a-row>
             </div>
             <a-button v-if="!writeoffReadonly" :disabled="savingWriteoff" type="dashed" block @click="addWItem">+ 添加核销项</a-button>
-            <div class="sum-line">本批共 {{ wItems.length }} 项，合计 {{ fmtAmount(wBatchTotal) }} 万元。{{ wMsId ? '' : '请选择本次核销对应的里程碑节点。' }}</div>
+            <div class="sum-line">本批共 {{ wItems.length }} 项，合计 {{ fmtAmount(wBatchTotal) }} 万元。</div>
             <div class="form-actions">
               <a-button :disabled="savingWriteoff" @click="backList">返回</a-button>
               <template v-if="!writeoffReadonly">
@@ -907,14 +832,14 @@ function backList() {
             </div>
             <div class="sec-hd" style="margin-top: 20px">核销记录</div>
             <a-table class="fund-table" size="small" row-key="id" :pagination="false"
-              :data-source="payments.filter(p => !wMsId || Number(p.budgetId) === wMsId)"
+              :data-source="yearPayments"
               :columns="[
                 { title: '日期', dataIndex: 'occurDate', width: 120 },
                 { title: '金额(万元)', dataIndex: 'amount', width: 120, align: 'right' },
                 { title: '用途', key: 'name' },
                 { title: '凭证', dataIndex: 'voucherNo', width: 120 },
                 { title: '状态', dataIndex: 'writeoffStatus', width: 160 },
-                { title: '节点', dataIndex: 'budgetId', width: 80 },
+                { title: '发生日期', dataIndex: 'occurDate', width: 110 },
               ]">
               <template #bodyCell="{ column, record }">
                 <template v-if="column.dataIndex === 'occurDate'">{{ fmtDate(record.occurDate) }}</template>
@@ -1190,7 +1115,7 @@ function backList() {
 .task-desc { margin-top: 6px; min-height: 34px; font-size: 12px; color: #8c8c8c; }
 .fund-flow-design {
   display: grid;
-  grid-template-columns: repeat(6, minmax(120px, 1fr));
+  grid-template-columns: repeat(5, minmax(160px, 1fr));
   gap: 10px;
   margin-bottom: 16px;
 }

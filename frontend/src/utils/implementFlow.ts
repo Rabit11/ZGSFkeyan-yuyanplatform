@@ -129,7 +129,7 @@ export interface ImplFlowOpts {
   attachments: ImplAttachment[]
   timeline: ImplTimelineItem[]
   processHint: string
-  /** 7.3 经费：预算填报 → 节点核销 → 全部闭环后总核 */
+  /** 7.3 经费：年度预算填报 → 财务审核备案 → 凭证核销 → 看板同步 */
   fundNodes: ImplFlowNode[]
 }
 
@@ -342,27 +342,15 @@ export function buildImplementFlowOpts(input: ImplementFlowInput | null | undefi
   const hasEvidencePending = msList.some((m) => m.status !== 'DONE' && m.colorStatus !== 'GREEN' && m.evidence)
   const written = payments.filter((p) => p.writeoffStatus === 'WRITTEN').length
   const nodeBudgets = budgets.filter((b) => String(b.milestoneName || '') !== '项目经费总核')
-  const finalRow = budgets.find((b) => String(b.milestoneName || '') === '项目经费总核')
   const budgetDraft = nodeBudgets.some((b) => b.status === 'DRAFT' || !b.status)
   const budgetUnit = nodeBudgets.some((b) => b.status === 'PENDING' || b.status === 'UNIT_AUDIT')
   const budgetHq = nodeBudgets.some((b) => b.status === 'UNIT_OK' || b.status === 'HQ_AUDIT')
   const budgetAllOk = nodeBudgets.length > 0 && nodeBudgets.every((b) => b.status === 'APPROVED')
-  const closedMs = msList.filter((m) => m.status === 'DONE' || m.colorStatus === 'GREEN')
   const writeoffPays = payments.filter((p) => p.flowType === 'WRITEOFF' || p.writeoffStatus)
   const pendingWrite = writeoffPays.some((p) => ['DRAFT', 'PENDING', 'UNIT_OK'].includes(String(p.writeoffStatus || '')))
   const writeoffDraft = writeoffPays.some((p) => p.writeoffStatus === 'DRAFT')
   const writeoffUnit = writeoffPays.some((p) => p.writeoffStatus === 'PENDING' || p.writeoffStatus === 'UNIT_OK')
-  const nodeWritten = (mid: number) =>
-    writeoffPays.some((p) => Number(p.budgetId) === mid || Number(p.milestoneId) === mid) &&
-    writeoffPays
-      .filter((p) => Number(p.budgetId) === mid || Number(p.milestoneId) === mid)
-      .every((p) => p.writeoffStatus === 'WRITTEN')
-  const allClosedWritten =
-    msTotal > 0 &&
-    allMsDone &&
-    closedMs.every((m) => nodeWritten(Number(m.id))) &&
-    !pendingWrite
-  const finalDone = finalRow?.status === 'APPROVED' || finalRow?.status === 'FINAL_DONE'
+  const allClosedWritten = writeoffPays.length > 0 && !pendingWrite
   const evalFail = evals.some((e) => e.result === 'FAIL' && e.status !== 'DONE')
   const evalPending = evals.some((e) => e.status !== 'DONE')
   const evalAllDone = evals.length > 0 && evals.every((e) => e.status === 'DONE') && !evalFail
@@ -682,26 +670,21 @@ export function buildImplementFlowOpts(input: ImplementFlowInput | null | undefi
     msLane.nodes = segs.flatMap((s) => s.nodes)
   }
 
-  const stFb1: ImplNodeStatus = !allMsDone ? 'pending' : budgetAllOk ? 'done' : budgetDraft || !nodeBudgets.length ? 'current' : 'done'
-  const stFb2: ImplNodeStatus = !allMsDone ? 'pending' : budgetAllOk ? 'done' : budgetUnit ? 'current' : budgetHq ? 'done' : 'pending'
-  const stFb3: ImplNodeStatus = !allMsDone ? 'pending' : budgetAllOk ? 'done' : budgetHq ? 'current' : 'pending'
-  const canWrite = allMsDone && budgetAllOk
+  const stFb1: ImplNodeStatus = budgetAllOk ? 'done' : budgetDraft || !nodeBudgets.length ? 'current' : 'done'
+  const stFb2: ImplNodeStatus = budgetAllOk ? 'done' : budgetUnit ? 'current' : budgetHq ? 'done' : 'pending'
+  const stFb3: ImplNodeStatus = budgetAllOk ? 'done' : budgetHq ? 'current' : 'pending'
+  const canWrite = nodeBudgets.some(b => b.status === 'APPROVED')
   const stFw1: ImplNodeStatus = allClosedWritten ? 'done' : !canWrite ? 'pending' : writeoffUnit ? 'done' : 'current'
   const stFw2: ImplNodeStatus = allClosedWritten ? 'done' : writeoffUnit ? 'current' : written > 0 ? 'done' : writeoffDraft ? 'pending' : 'pending'
-  const stFw3: ImplNodeStatus = !allMsDone ? 'pending' : written > 0 && !pendingWrite ? 'done' : 'pending'
-  const finalInAudit = ['FINAL_PENDING', 'FINAL_UNIT_OK'].includes(String(finalRow?.status || ''))
-  const stFf: ImplNodeStatus = finalDone ? 'done' : finalInAudit || (allMsDone && allClosedWritten) ? 'current' : 'pending'
-
+  const stFw3: ImplNodeStatus = written > 0 && !pendingWrite ? 'done' : 'pending'
   const fundNodes: ImplFlowNode[] = [
     nodeOf(
       'FUND_B1',
-      '项目团队填写经费预算填报表（绑定里程碑）',
+      '项目团队填写项目年度预算',
       'ACTION',
       stFb1,
       [owner],
-      allMsDone
-        ? '全部里程碑已闭环，请按节点填报预算。团队成员可暂存，负责人提交审签。'
-        : `须全部里程碑闭环后再填报预算（当前 ${msDone}/${msTotal || 0}）。`,
+      '按项目、年度和预算项填报，团队暂存、负责人提交。',
       stFb1 === 'current' ? '去填报' : '查看填报',
       '/implement/fund?mode=budget',
     ),
@@ -713,28 +696,12 @@ export function buildImplementFlowOpts(input: ImplementFlowInput | null | undefi
       'ACTION',
       stFw1,
       [unitFin],
-      '节点预算完成总部复核备案后开放。二级单位财务负责人按节点上传付款凭证并填报核销信息。',
+      '费用发生年度存在已备案预算后，单位财务凭实际付款凭证核销。',
       stFw1 === 'current' ? '去填报/上传' : '查看',
       '/implement/fund?mode=writeoff&desk=writeoff-upload',
     ),
     nodeOf('FUND_W2', '二级单位财务完成本级核销', 'AUDIT', stFw2, [unitFin], '二级单位财务核对付款凭证并完成本级核销；退回则回到核销填报上传环节补正。', stFw2 === 'current' ? '去办理' : '查看', '/implement/fund?mode=writeoff&desk=writeoff'),
     nodeOf('FUND_W3', '系统同步二级单位经费核销数据到总部', 'SYSTEM', stFw3, [sys], '二级单位财务完成本级核销后，系统自动同步单位经费数据至总部经费看板。'),
-    nodeOf(
-      'FUND_FINAL',
-      '项目经费总核（全部节点闭环后）',
-      finalDone ? 'CLOSED' : 'AUDIT',
-      stFf,
-      [unitFin, hqFin],
-      allMsDone
-        ? finalRow?.status === 'FINAL_PENDING'
-          ? '总核已流转至二级单位财务负责人办理，通过后进入总部财务主管复核。'
-          : finalRow?.status === 'FINAL_UNIT_OK'
-            ? '二级单位财务负责人已通过，待总部财务主管复核。'
-            : '全部里程碑已闭环，两级财务按顺序对全年节点预算与核销进行总核。'
-        : `须全部里程碑闭环后再发起总核（当前 ${msDone}/${msTotal || 0}）。`,
-      stFf === 'current' ? '去总核' : '查看',
-      '/implement/fund?mode=final',
-    ),
   ]
   const fundLane = lanes.find((l) => l.laneCode === 'IMPL_FUND_EXEC')
   if (fundLane) fundLane.nodes = fundNodes
@@ -764,14 +731,11 @@ export function buildImplementFlowOpts(input: ImplementFlowInput | null | undefi
     nextAction = '办理评估检查'
     nextActionPath = '/implement/evaluation'
   } else if (stFw1 === 'current') {
-    nextAction = '二级单位填报节点核销信息并上传材料'
+    nextAction = '二级单位填报经费核销信息并上传材料'
     nextActionPath = '/implement/fund?mode=writeoff&desk=writeoff-upload'
   } else if (stFw2 === 'current') {
     nextAction = '办理二级单位本级核销'
     nextActionPath = '/implement/fund?mode=writeoff&desk=writeoff'
-  } else if (stFf === 'current') {
-    nextAction = '全部节点已闭环，发起经费总核'
-    nextActionPath = '/implement/fund?mode=final'
   } else if (allMsDone) {
     nextAction = '进入项目验收'
     nextActionPath = '/acceptance/accept'
@@ -844,7 +808,7 @@ export function buildImplementFlowOpts(input: ImplementFlowInput | null | undefi
     timeline,
     fundNodes,
     processHint:
-      '经费：全部里程碑节点完成全部审核后，项目团队提交节点预算 → 二级单位财务审核 → 总部财务复核备案 → 二级单位财务上传付款凭证并完成本级核销 → 系统同步单位经费数据到总部经费看板 → 发起项目经费总核。',
+      '经费：项目团队提交年度预算 → 二级单位财务审核 → 总部财务复核备案 → 二级单位财务凭真实付款凭证完成本级核销 → 自动同步经费看板。',
   }
 }
 

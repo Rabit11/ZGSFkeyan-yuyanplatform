@@ -158,7 +158,7 @@ export const WORK_DUTY_DEFS: WorkDutyDef[] = [
     stage: '实施',
     title: '经费预算填报',
     path: '/implement/fund?mode=budget',
-    fill: rule(TEAM, TEAM_POSTS, TEAM_LABELS, '全部里程碑闭环后，团队成员可暂存'),
+    fill: rule(TEAM, TEAM_POSTS, TEAM_LABELS, '按项目年度和预算项填写，团队成员可暂存'),
     submit: rule(['owner'], ['leader'], ['项目负责人'], '负责人提交审签'),
     audit: rule(
       ['finHead', 'finStaff', 'finHq'],
@@ -178,9 +178,9 @@ export const WORK_DUTY_DEFS: WorkDutyDef[] = [
       stage: '实施',
       title: '经费核销',
       path: '/implement/fund?mode=writeoff',
-      fill: rule(['finHead'], ['unitFinanceDirector'], ['二级单位财务负责人'], '全部里程碑完成全部审核后上传付款凭证并填报核销信息'),
+      fill: rule(['finHead'], ['unitFinanceDirector'], ['二级单位财务负责人'], '按实际费用上传付款凭证并填报核销信息'),
       submit: rule(['finHead'], ['unitFinanceDirector'], ['二级单位财务负责人'], '上传付款凭证并完成本级核销后，数据自动同步总部经费看板'),
-      audit: rule(['finHead'], ['unitFinanceDirector'], ['二级单位财务负责人'], '二级单位财务完成本级核销即完成节点核销，系统同步总部经费看板'),
+      audit: rule(['finHead'], ['unitFinanceDirector'], ['二级单位财务负责人'], '二级单位财务完成本级核销即完成经费核销，系统同步总部经费看板'),
       view: rule(
         ['admin', 'leader', 'hqHead', 'finHq', 'finHead', 'finStaff', ...TEAM],
         TEAM_POSTS.concat(['hqFinance', 'unitFinanceDirector']),

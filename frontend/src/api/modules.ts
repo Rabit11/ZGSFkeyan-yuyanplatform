@@ -76,6 +76,7 @@ export const fundApi = {
   removeBudget: (id: number) => http.del(`/api/fund/budgets/${id}`),
   payments: (projectId: number) => http.get(`/api/projects/${projectId}/fund/payments`),
   createPayment: (data: any) => http.post('/api/fund/payments', data),
+  updatePayment: (id: number, data: any) => http.put(`/api/fund/payments/${id}`, data),
   writeoff: (id: number, data?: any) => http.post(`/api/fund/payments/${id}/writeoff`, data || { pass: true }),
   hqBudgets: (year?: number) => http.get('/api/hq-fund/budgets', { year }),
   createHqBudget: (data: any) => http.post('/api/hq-fund/budgets', data),
