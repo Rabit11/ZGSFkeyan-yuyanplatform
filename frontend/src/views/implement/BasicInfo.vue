@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { projectApi } from '@/api/modules'
+import { projectApi, userApi } from '@/api/modules'
 import { isSilentAuthError } from '@/api/request'
 import { useDictStore } from '@/stores/dict'
 import { useUserStore } from '@/stores/user'
@@ -10,7 +10,6 @@ import ProjectSelect from '@/components/ProjectSelect.vue'
 import WorkDutyBar from '@/components/WorkDutyBar.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import { useWorkDuty } from '@/composables/useWorkDuty'
-import { PERSONNEL_ROSTER } from '@/constants/personnel'
 import { PROJECT_STATUS_TEXT, type BasicDraft, type BasicDraftStatus } from '@/api/types'
 import { fmtDate } from '@/utils/format'
 
@@ -50,8 +49,8 @@ const MGMT_IDENTITIES = ['unitHead', 'unitStaff', 'hqHead', 'hqStaff', 'admin']
 const isMgmt = computed(() => user.isAdmin || MGMT_IDENTITIES.includes(String(user.identityCode || '')))
 const hasDraft = computed(() => ['DRAFT', 'APPROVING', 'REJECTED'].includes(draft.value.status))
 const approving = computed(() => draft.value.status === 'APPROVING')
-const showSaveDraft = computed(() => !viewOnly.value && !approving.value && !!draft.value.canEdit)
-const showSubmit = computed(() => !viewOnly.value && !approving.value && !!draft.value.canSubmit)
+const showSaveDraft = computed(() => !loading.value && !viewOnly.value && !approving.value && !!draft.value.canEdit)
+const showSubmit = computed(() => !loading.value && !viewOnly.value && !approving.value && !!draft.value.canSubmit)
 const showAudit = computed(() => !viewOnly.value && approving.value && !!draft.value.canAudit)
 /** 需求 V19.1：本页仅项目团队填报并走四级审批；管理团队/管理员不再提供“保存至台账”直写入口（台账维护走项目台账页） */
 const showDirectSave = computed(() => false)
@@ -112,7 +111,18 @@ const ROLE_CODE: Record<string, string> = {
   单位财务部长: 'UNIT_FIN_MINISTER',
   单位财务主管: 'UNIT_FIN_SUPERVISOR',
 }
-const personOptions = PERSONNEL_ROSTER.map((p) => ({ value: p.employeeNo, label: `${p.realName}（${p.employeeNo}）` }))
+const directory = ref<any[]>([])
+const people = computed(() => {
+  const rows = new Map<string, { employeeNo: string; realName: string }>()
+  for (const m of form.teamMembers || []) {
+    if (m.employeeNo) rows.set(String(m.employeeNo), { employeeNo: String(m.employeeNo), realName: m.userName || String(m.employeeNo) })
+  }
+  for (const p of directory.value) {
+    if (p.employeeNo) rows.set(String(p.employeeNo), { employeeNo: String(p.employeeNo), realName: p.realName || String(p.employeeNo) })
+  }
+  return [...rows.values()]
+})
+const personOptions = computed(() => people.value.map(p => ({ value: p.employeeNo, label: `${p.realName}（${p.employeeNo}）` })))
 function personFilter(input: string, option: any) {
   return String(option?.label || '').includes(input.trim())
 }
@@ -134,8 +144,8 @@ function resetForm(src: any) {
 function applyPayload(p: any) {
   if (!p) return
   Object.assign(form, p, {
-    participants: (p.participants || []).map((x: any) => ({ ...x })),
-    teamMembers: (p.teamMembers || []).map((x: any) => ({ ...x })),
+    participants: (p.participants ?? form.participants ?? []).map((x: any) => ({ ...x })),
+    teamMembers: (p.teamMembers ?? form.teamMembers ?? []).map((x: any) => ({ ...x })),
     annualPlans: form.annualPlans || [],
   })
 }
@@ -149,23 +159,29 @@ function buildPayload() {
   return p
 }
 
+let loadVersion = 0
 async function load() {
-  if (!projectId.value) return
+  const id = projectId.value
+  const version = ++loadVersion
+  draft.value = emptyDraft()
+  if (!id) { resetForm({}); return }
   loading.value = true
   try {
-    const res = await projectApi.detail(projectId.value)
+    const res = await projectApi.detail(id)
+    if (version !== loadVersion) return
     resetForm(res.data || {})
-    await loadDraft()
+    await loadDraft(id, version)
   } catch (e: any) {
-    if (!isSilentAuthError(e)) message.error(e.message || '加载项目信息失败')
+    if (version === loadVersion && !isSilentAuthError(e)) message.error(e.message || '加载项目信息失败')
   } finally {
-    loading.value = false
+    if (version === loadVersion) loading.value = false
   }
 }
-async function loadDraft() {
-  if (!projectId.value) return
+async function loadDraft(id = projectId.value, version = loadVersion) {
+  if (!id) return
   try {
-    const res = await projectApi.basicDraft(projectId.value)
+    const res = await projectApi.basicDraft(id)
+    if (id !== projectId.value || version !== loadVersion) return
     const dr = (res.data || {}) as Partial<BasicDraft>
     draft.value = {
       ...emptyDraft(),
@@ -177,12 +193,14 @@ async function loadDraft() {
     }
     if (hasDraft.value) applyPayload(draft.value.payload)
   } catch (e: any) {
-    // 草稿接口不可用时退回工作定责判断（旧后端兼容）
-    if (!isSilentAuthError(e)) message.warning(e.message || '草稿状态加载失败，按工作定责判定可办权限')
-    draft.value = { ...emptyDraft(), canEdit: can.value.fill || can.value.edit, canSubmit: can.value.submit }
+    if (id !== projectId.value || version !== loadVersion) return
+    draft.value = emptyDraft()
+    if (!isSilentAuthError(e)) message.error(e.message || '草稿状态加载失败，请重新选择项目后重试')
   }
 }
 onMounted(async () => {
+  try { directory.value = (await userApi.candidates()).data as any[] || [] }
+  catch (e: any) { if (!isSilentAuthError(e)) message.warning('人员目录加载失败，保留项目已有人员，请刷新后重试') }
   await dictStore.loadChannels()
   await dictStore.load('PROJECT_LEVEL')
   const qid = Number(route.query.projectId)
@@ -282,13 +300,13 @@ function removeParticipant(i: number) {
 }
 
 function teamMember(groupCode: string, roleName: string) {
-  return (form.teamMembers || []).find((m: any) => m.groupCode === groupCode && m.roleName === roleName)
+  return (form.teamMembers || []).find((m: any) => m.roleCode === ROLE_CODE[roleName] || (m.groupCode === groupCode && m.roleName === roleName))
 }
 function teamNo(groupCode: string, roleName: string): string | undefined {
   const m = teamMember(groupCode, roleName)
   if (!m) return undefined
   if (m.employeeNo) return String(m.employeeNo)
-  return PERSONNEL_ROSTER.find((p) => p.realName === String(m.userName || '').trim())?.employeeNo
+  return people.value.find((p) => p.realName === String(m.userName || '').trim())?.employeeNo
 }
 function setTeam(groupCode: string, roleName: string, employeeNo?: string) {
   form.teamMembers = form.teamMembers || []
@@ -301,12 +319,15 @@ function setTeam(groupCode: string, roleName: string, employeeNo?: string) {
     if (roleName === '项目负责人') form.ownerName = ''
     return
   }
-  const hit = PERSONNEL_ROSTER.find((p) => p.employeeNo === employeeNo)
+  const hit = people.value.find((p) => p.employeeNo === String(employeeNo))
   if (!member) {
     member = { groupCode, roleName, roleCode: ROLE_CODE[roleName] || roleName, userName: '', employeeNo: '' }
     form.teamMembers.push(member)
   }
-  member.userName = hit?.realName || ''
+  member.roleCode = ROLE_CODE[roleName] || roleName
+  member.roleName = roleName
+  member.groupCode = groupCode
+  member.userName = hit?.realName || member.userName || String(employeeNo)
   member.employeeNo = employeeNo
   if (roleName === '项目负责人') form.ownerName = member.userName
 }
@@ -324,7 +345,7 @@ function setTeam(groupCode: string, roleName: string, employeeNo?: string) {
     <a-card :body-style="{ padding: '16px 20px' }">
       <a-space style="margin-bottom: 16px">
         <span>选择项目：</span>
-        <ProjectSelect v-model="projectId" @change="load" />
+        <ProjectSelect v-model="projectId" :disabled="saving || submitting || auditing" @change="load" />
       </a-space>
 
       <div v-if="hasDraft || draft.status === 'APPROVED'" class="draft-bar">
@@ -443,6 +464,7 @@ function setTeam(groupCode: string, roleName: string, employeeNo?: string) {
           <div v-if="!(form.participants || []).length" class="empty-hint">暂无参研单位</div>
 
           <a-divider orientation="left">团队</a-divider>
+          <p class="page-desc">平台立项项目自动带入申报人员；已保存的草稿优先显示。负责人可核对修改，保存草稿后再次提交确认，审批通过后更新正式团队。表单导入项目显示已有人员，缺失岗位由负责人补充。</p>
           <a-row :gutter="16">
             <a-col :span="12" v-for="g in TEAM_GROUPS" :key="g.code">
               <div style="font-weight: 600; margin-bottom: 8px">{{ g.name }}</div>

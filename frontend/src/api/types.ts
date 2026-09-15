@@ -206,7 +206,11 @@ export interface ProjMilestone {
 }
 
 export interface MilestoneTodo {
-  taskType: 'COMPILE' | 'COMPILE_AUDIT' | 'CLOSE' | 'CLOSE_AUDIT'
+  draftId?: number
+  flowNodeName?: string
+  submittedBy?: string
+  submittedAt?: string
+  taskType: 'COMPILE' | 'COMPILE_AUDIT' | 'CLOSE' | 'CLOSE_AUDIT' | 'BASIC_AUDIT'
   typeLabel?: string
   projectId: number
   projectNo?: string
@@ -651,4 +655,49 @@ export interface DashboardOverview {
   statusDist: { name: string; value: number }[]
   channelDist: { name: string; value: number }[]
   fundTrend: { month: string; budget: number; expense: number }[]
+}
+
+export type BasicDraftStatus = 'NONE' | 'DRAFT' | 'APPROVING' | 'APPROVED' | 'REJECTED'
+
+export interface BasicDraftFlowNode {
+  code: string
+  name: string
+  skipped?: boolean
+}
+
+export interface BasicDraftAudit {
+  node?: string
+  nodeName?: string
+  actor?: string
+  actorNo?: string
+  pass?: boolean
+  opinion?: string
+  time?: string
+}
+
+export interface BasicDraft {
+  id?: number
+  status: BasicDraftStatus
+  flowNode?: string
+  flowNodeName?: string
+  flowNodes: BasicDraftFlowNode[]
+  payload: (Partial<ProjInfo> & { participants?: ProjParticipant[]; teamMembers?: ProjTeamMember[] }) | null
+  auditTrail: BasicDraftAudit[]
+  canEdit?: boolean
+  canSubmit?: boolean
+  canAudit?: boolean
+  submittedBy?: string
+  submittedAt?: string
+}
+
+export interface PendingBasicDraft {
+  draftId: number
+  projectId: number
+  projectNo?: string
+  projectName?: string
+  ownerName?: string
+  flowNode?: string
+  flowNodeName?: string
+  submittedBy?: string
+  submittedAt?: string
 }
