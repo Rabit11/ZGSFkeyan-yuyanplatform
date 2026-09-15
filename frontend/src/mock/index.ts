@@ -1,11 +1,8 @@
-import { mockTransform } from './transform'
 import type { Res } from '@/api/types'
 import type { RequestOptions } from '@/api/request'
 import { calcColor, mergeColor } from '@/utils/color'
 import { buildLifecycle, channelPathLabel } from '@/utils/lifecycle'
 import { identityByLabel } from '@/constants/permission'
-import { canActOnHandlers, identitiesForFlowNode } from '@/utils/flowActor'
-import { declarationAuditNodes, declarationNodes, declarationWorkflowId } from '@/utils/declarationWorkflow'
 import * as DB from './data'
 import { buildDashboard, canAccessPreResearch, currentMockUser } from './dashboard'
 
@@ -18,131 +15,6 @@ function fundLockError(projectId: number) {
   const open = list.filter((x) => x.status !== 'DONE' && x.colorStatus !== 'GREEN').length
   return open ? `须全部里程碑节点闭环后，才能执行项目经费流程（仍有 ${open} 个节点未闭环）` : ''
 }
-
-/* ------------------------------ 里程碑状态机 / 基线 辅助 ------------------------------ */
-const todayStr = () => new Date().toISOString().slice(0, 10)
-const nowStr = () => new Date().toISOString().slice(0, 19).replace('T', ' ')
-
-function annualPlanOf(projectId: number, year?: number) {
-  const p = DB.projects.find((x) => x.id === Number(projectId))
-  const y = Number(year || new Date().getFullYear())
-  return (p?.annualPlans || []).find((x: any) => Number(x.year) === y)
-}
-
-function isCloseAudit(status?: string) {
-  return status === 'CLOSE_DEPT_AUDIT' || status === 'CLOSE_UNIT_AUDIT'
-}
-
-/** 计划日期已锁定：已存档基线 / 节点已完成 / 该年度清单已存档 */
-function msDateLocked(m: any) {
-  if (!m) return false
-  if (m.baselinePlanDate || m.status === 'DONE') return true
-  return String(annualPlanOf(m.projectId, m.year)?.finishStatus || '') === 'DONE'
-}
-
-function msEvidenceMaterials(id: number) {
-  return DB.materials.filter((x) => x.bizType === 'MILESTONE' && x.bizId === id && x.fieldCode !== 'PLAN_TEMPLATE')
-}
-
-/** 可删除：DOING（含展示态 OVERDUE）、无佐证、未进基线 */
-function msCanDelete(m: any) {
-  if (!m) return false
-  const raw = String(m.status || 'DOING')
-  if (raw !== 'DOING' && raw !== 'OVERDUE') return false
-  if (msEvidenceMaterials(m.id).length) return false
-  return !msDateLocked(m)
-}
-
-/* ------------------------------ 变更审批链 ------------------------------ */
-function changeFlowNodes(x: any): string[] {
-  if (x.changeType === 'DATA') return ['二级单位内部审批', '总部科技主管确认']
-  return x.legalReview ? ['二级单位主管部门初审', '法务部门审核', '总部终审'] : ['二级单位主管部门初审', '总部终审']
-}
-
-/** 里程碑延期变更审批通过：更新节点计划日期并累计延期次数 */
-function applyDelayChange(x: any) {
-  if (x.category !== 'MILESTONE_DELAY' || !x.milestoneId || !x.newPlanDate) return
-  const m = DB.milestones.find((y) => y.id === Number(x.milestoneId)) as any
-  if (!m) return
-  if (!m.baselinePlanDate) m.baselinePlanDate = m.planDate
-  m.planDate = String(x.newPlanDate).slice(0, 10)
-  m.delayCount = Number(m.delayCount || 0) + 1
-  if (m.status === 'OVERDUE') m.status = 'DOING'
-  m.colorStatus = calcColor(m.planDate, m.status === 'DONE')
-  DB.recomputeProject(m.projectId)
-}
-
-/* ------------------------------ 基本信息审批草稿 ------------------------------ */
-const BASIC_FLOW = [
-  { code: 'PROJECT_LEADER', name: '项目负责人审核', roleKeys: ['PROJECT_LEADER', '项目负责人'], identities: ['owner'] },
-  { code: 'UNIT_TECH', name: '单位科技管理部审核', roleKeys: ['UNIT_MINISTER', '单位科技部长', 'UNIT_SUPERVISOR', '单位科技主管'], identities: ['unitHead', 'unitStaff'] },
-  { code: 'UNIT_LEADER', name: '单位分管领导复核', roleKeys: ['UNIT_LEADER', '单位分管领导'], identities: [] as string[], optional: true },
-  { code: 'HQ', name: '总部科研项目处确认', roleKeys: ['HQ_DIRECTOR', '总部处室处长', 'HQ_SUPERVISOR', '总部处室主管'], identities: ['hqHead', 'hqStaff'] },
-]
-const TEAM_ROLE_KEYS = ['PROJECT_LEADER', '项目负责人', 'PROJECT_CONTACT', '项目联系人', 'TECH_LEADER', '技术负责人', 'PROJECT_SUPERVISOR', '项目主管']
-const TEAM_IDENTITIES = ['owner', 'contactLogin', 'techLead', 'projectPm']
-/** 内存草稿：projectId → draft */
-const basicDrafts = new Map<number, any>()
-
-function mockUserMatchesMember(m: any, user: any) {
-  if (!m || !user) return false
-  const no = String(m.employeeNo || '').replace(/\D/g, '')
-  const myNo = String(user.employeeNo || user.username || '').replace(/\D/g, '')
-  if (no && myNo && no === myNo) return true
-  const name = String(m.userName || m.realName || '').trim()
-  return !!name && name === String(user.realName || '').trim()
-}
-function membersByKeys(project: any, keys: string[]) {
-  return (project?.teamMembers || []).filter((m: any) => keys.includes(String(m.roleCode || '')) || keys.includes(String(m.roleName || '')))
-}
-function basicFlowNodes(project: any) {
-  return BASIC_FLOW.map((n) => ({
-    code: n.code,
-    name: n.name,
-    skipped: !!n.optional && !membersByKeys(project, n.roleKeys).some((m: any) => m.userName || m.employeeNo),
-  }))
-}
-function isProjectTeamUser(project: any, user: any) {
-  if (!user) return false
-  if (user.identityCode === 'admin') return true
-  if (membersByKeys(project, TEAM_ROLE_KEYS).some((m: any) => mockUserMatchesMember(m, user))) return true
-  return TEAM_IDENTITIES.includes(String(user.identityCode || ''))
-}
-function canAuditBasicNode(project: any, nodeCode: string, user: any) {
-  if (!user) return false
-  if (user.identityCode === 'admin') return true
-  const def = BASIC_FLOW.find((n) => n.code === nodeCode)
-  if (!def) return false
-  const named = membersByKeys(project, def.roleKeys).filter((m: any) => m.userName || m.employeeNo)
-  if (named.length) return named.some((m: any) => mockUserMatchesMember(m, user))
-  return def.identities.includes(String(user.identityCode || ''))
-}
-function basicDraftView(projectId: number) {
-  const project = DB.projects.find((x) => x.id === projectId)
-  const user = currentMockUser()
-  const dr = basicDrafts.get(projectId)
-  const flowNodes = basicFlowNodes(project)
-  const team = isProjectTeamUser(project, user)
-  if (!dr) {
-    return { id: undefined, status: 'NONE', flowNode: '', flowNodeName: '', flowNodes, payload: null, auditTrail: [], canEdit: team, canSubmit: false, canAudit: false }
-  }
-  const editable = dr.status === 'DRAFT' || dr.status === 'REJECTED'
-  return {
-    ...dr,
-    flowNodes,
-    flowNodeName: flowNodes.find((n) => n.code === dr.flowNode)?.name || '',
-    canEdit: team && editable,
-    canSubmit: team && editable,
-    canAudit: dr.status === 'APPROVING' && canAuditBasicNode(project, dr.flowNode, user),
-  }
-}
-function nextBasicNode(project: any, current?: string) {
-  const nodes = basicFlowNodes(project).filter((n) => !n.skipped)
-  if (!current) return nodes[0]?.code || ''
-  const i = nodes.findIndex((n) => n.code === current)
-  return i >= 0 && i < nodes.length - 1 ? nodes[i + 1].code : ''
-}
-let basicDraftSeq = 900
 
 const DECLARATION_POST_ROLES = [
   ['contact', 'TECH', 'PROJECT_CONTACT', '项目联系人'],
@@ -208,52 +80,6 @@ function paginate(list: any[], query: any) {
   return { records: list.slice((page - 1) * size, page * size), total: list.length, page, size }
 }
 
-const DECLARATION_NODE_POST_KEYS: Record<string, string[]> = {
-  联系人: ['contact'],
-  项目负责人: ['leader'],
-  承担部门: ['deptHead'],
-  承办部门: ['deptHead'],
-  二级总师: ['chief2'],
-  一级总师: ['chief1'],
-  财务: ['unitFinanceDirector', 'unitFinanceSupervisor'],
-  科技部门: ['unitTechDirector', 'unitTechSupervisor'],
-  分管: ['unitTechDirector', 'unitTechSupervisor'],
-  总部: ['hqDirector', 'hqSupervisor'],
-}
-
-function declarationPosts(row: any) {
-  if (row?.posts && typeof row.posts === 'object') return row.posts
-  const remark = String(row?.remark || '')
-  const prefix = '__DECLARATION_POSTS__:'
-  if (!remark.startsWith(prefix)) return {}
-  try {
-    return JSON.parse(remark.slice(prefix.length)) || {}
-  } catch {
-    return {}
-  }
-}
-
-function isMockDeclarationApprover(row: any, user: any) {
-  if (!user || user.identityCode === 'admin') return true
-  const node = String(row?.flowNode || '')
-  const workflowNode = declarationAuditNodes({ ...row, posts: declarationPosts(row) }).find((n) => n.title === node || n.title.includes(node))
-  const keys = workflowNode?.roleKeys || Object.entries(DECLARATION_NODE_POST_KEYS).find(([label]) => node.includes(label))?.[1] || []
-  const posts = declarationPosts(row)
-  const labels = keys.map((key) => posts[key]).filter(Boolean)
-  if (labels.length) {
-    return canActOnHandlers(labels.map((label) => ({ label: String(label) })), {
-      employeeNo: user.employeeNo,
-      realName: user.realName,
-      username: user.username,
-      identityCode: user.identityCode,
-    })
-  }
-  if (!identitiesForFlowNode(node).includes(user.identityCode)) return false
-  if (user.dataScope === 'COMPANY') return true
-  if (row.orgId && user.orgId && Number(row.orgId) === Number(user.orgId)) return true
-  return row.applicant && (String(row.applicant).startsWith(String(user.realName || '')) || String(row.applicant).startsWith(String(user.username || '')))
-}
-
 /** 构建 accept 分级材料栏：国家级 → 单位/公司/国家；地方级 → 单位/属地；公司级 → 单位/公司 */
 function buildAcceptItems(projectId: number, acceptanceId: number) {
   const p = DB.projects.find((x) => x.id === projectId)
@@ -280,6 +106,10 @@ function buildAcceptItems(projectId: number, acceptanceId: number) {
         required: applicable ? 1 : 0,
         locked: applicable ? 0 : 1,
         fileUrl: applicable && mi === 0 ? `/files/${m}.pdf` : undefined,
+        fileName: applicable && mi === 0 ? `${m}.pdf` : undefined,
+        fileSize: applicable && mi === 0 ? 131072 : undefined,
+        uploadedBy: applicable && mi === 0 ? '林晚晴' : undefined,
+        uploadedAt: applicable && mi === 0 ? new Date().toISOString() : undefined,
         status: applicable && mi === 0 ? 'UPLOADED' : 'EMPTY',
       })
     })
@@ -290,19 +120,10 @@ function buildAcceptItems(projectId: number, acceptanceId: number) {
 export async function mockRequest<T = any>(opts: RequestOptions): Promise<Res<T>> {
   const method = (opts.method || 'get').toUpperCase()
   const url = opts.url.replace(/^\/api/, '')
-  const [pathname, qs] = url.split('?')
+  const [pathname] = url.split('?')
   const segs = pathname.split('/').filter(Boolean)
-  // URL 查询串（如 /milestones/annual-plan/audit?projectId=&year=）也并入 query
-  const urlQuery: Record<string, string> = {}
-  new URLSearchParams(qs || '').forEach((v, k) => {
-    urlQuery[k] = v
-  })
-  const rawData = opts.data
-  const dataObj = rawData && typeof rawData === 'object' && !(rawData instanceof FormData) ? rawData : {}
-  const query = { ...urlQuery, ...(opts.params || {}), ...dataObj }
-  const body = rawData || {}
-  const transformResult = mockTransform(method, pathname, query, body)
-  if (transformResult) return transformResult as Res<T>
+  const query = { ...(opts.params || {}), ...(opts.data || {}) }
+  const body = opts.data || {}
 
   const m = (mth: string, pattern: string, fn: (p: Record<string, string>) => any) => {
     if (method !== mth) return null
@@ -361,155 +182,8 @@ export async function mockRequest<T = any>(opts: RequestOptions): Promise<Res<T>
   )
 
   /* ------------------------------ 项目 ------------------------------ */
-  /* ------------------------------ 文件上传（返回 objectKey） ------------------------------ */
-  routes.push(
-    m('POST', '/files/upload', () => {
-      const f: any = body instanceof FormData ? body.get('file') : null
-      const name = String(f?.name || `附件-${Date.now()}.pdf`)
-      const objectKey = `${String(query.bizType || 'evidence')}/${Date.now()}-${name}`
-      return ok({ fileName: name, fileUrl: `/files/${objectKey}`, fileSize: Number(f?.size || 0), objectKey })
-    }),
-  )
-
   routes.push(
     m('GET', '/projects/export', () => ok(DB.projects)),
-    /* ---------- 年度目标 / 清单提交 ---------- */
-    m('PUT', '/projects/:id/annual-plan', (p) => {
-      const project = DB.projects.find((x) => x.id === Number(p.id))
-      if (!project) return fail('项目不存在')
-      const year = Number(body.year || new Date().getFullYear())
-      project.annualPlans = project.annualPlans || []
-      let plan: any = project.annualPlans.find((x: any) => Number(x.year) === year)
-      if (!plan) {
-        plan = { id: Date.now(), projectId: project.id, year, finishStatus: 'DOING' }
-        project.annualPlans.push(plan)
-      }
-      // 契约：只接受 year / annualGoal / planContent / dueDate，不再接受 finishStatus
-      if (body.annualGoal !== undefined) plan.annualGoal = body.annualGoal
-      if (body.planContent !== undefined) plan.planContent = body.planContent
-      if (body.dueDate !== undefined) plan.dueDate = body.dueDate
-      return ok(true)
-    }),
-    m('POST', '/projects/:id/annual-plan/submit', (p) => {
-      const project = DB.projects.find((x) => x.id === Number(p.id))
-      if (!project) return fail('项目不存在')
-      const year = Number(body.year || new Date().getFullYear())
-      const ms = DB.milestones.filter((x) => x.projectId === project.id && Number(x.year) === year)
-      if (!ms.length) return fail(`${year} 年度尚无里程碑节点，至少编制 1 个节点后才能提交清单审核`)
-      project.annualPlans = project.annualPlans || []
-      let plan: any = project.annualPlans.find((x: any) => Number(x.year) === year)
-      if (!plan) {
-        plan = { id: Date.now(), projectId: project.id, year }
-        project.annualPlans.push(plan)
-      }
-      if (plan.finishStatus === 'PENDING_AUDIT') return fail('清单已在审核中，请勿重复提交')
-      if (plan.finishStatus === 'DONE') return fail('清单已存档，增补节点请走项目变更')
-      plan.finishStatus = 'PENDING_AUDIT'
-      plan.colorStatus = 'YELLOW'
-      return ok(true)
-    }),
-    /* ---------- 基本信息审批草稿 ---------- */
-    m('GET', '/projects/basic-drafts/pending', () => {
-      const user = currentMockUser()
-      const list: any[] = []
-      basicDrafts.forEach((dr, pid) => {
-        if (dr.status !== 'APPROVING') return
-        const project = DB.projects.find((x) => x.id === pid)
-        if (!canAuditBasicNode(project, dr.flowNode, user)) return
-        list.push({
-          draftId: dr.id,
-          projectId: pid,
-          projectNo: project?.projectNo,
-          projectName: project?.name,
-          ownerName: project?.ownerName,
-          flowNode: dr.flowNode,
-          flowNodeName: basicFlowNodes(project).find((n) => n.code === dr.flowNode)?.name || '',
-          submittedBy: dr.submittedBy,
-          submittedAt: dr.submittedAt,
-        })
-      })
-      return ok(list)
-    }),
-    m('GET', '/projects/:id/basic-draft', (p) => {
-      if (!DB.projects.some((x) => x.id === Number(p.id))) return fail('项目不存在')
-      return ok(basicDraftView(Number(p.id)))
-    }),
-    m('PUT', '/projects/:id/basic-draft', (p) => {
-      const pid = Number(p.id)
-      const project = DB.projects.find((x) => x.id === pid)
-      if (!project) return fail('项目不存在')
-      const user = currentMockUser()
-      if (!isProjectTeamUser(project, user)) return fail('仅项目团队（负责人 / 联系人 / 技术负责人 / 项目主管）可保存基本信息草稿')
-      const old = basicDrafts.get(pid)
-      if (old && old.status === 'APPROVING') return fail('草稿审批中，不能修改')
-      const { participants, teamMembers, ...rest } = body || {}
-      basicDrafts.set(pid, {
-        id: old?.id || ++basicDraftSeq,
-        status: 'DRAFT',
-        flowNode: '',
-        payload: { ...rest, participants: participants || [], teamMembers: teamMembers || [] },
-        auditTrail: old?.status === 'REJECTED' ? old.auditTrail || [] : [],
-        submittedBy: old?.submittedBy,
-        submittedAt: old?.submittedAt,
-      })
-      return ok(true)
-    }),
-    m('POST', '/projects/:id/basic-draft/submit', (p) => {
-      const pid = Number(p.id)
-      const project = DB.projects.find((x) => x.id === pid)
-      const dr = basicDrafts.get(pid)
-      if (!project || !dr) return fail('请先保存草稿再提交审批')
-      const user = currentMockUser()
-      if (!isProjectTeamUser(project, user)) return fail('仅项目团队可提交基本信息审批')
-      if (dr.status === 'APPROVING') return fail('草稿已在审批中')
-      Object.assign(dr, {
-        status: 'APPROVING',
-        flowNode: nextBasicNode(project),
-        auditTrail: [],
-        submittedBy: user?.realName || '当前用户',
-        submittedAt: nowStr(),
-      })
-      return ok(true)
-    }),
-    m('POST', '/projects/:id/basic-draft/audit', (p) => {
-      const pid = Number(p.id)
-      const project = DB.projects.find((x) => x.id === pid)
-      const dr = basicDrafts.get(pid)
-      if (!project || !dr) return fail('草稿不存在')
-      if (dr.status !== 'APPROVING') return fail('草稿不在审批中')
-      const user = currentMockUser()
-      if (!canAuditBasicNode(project, dr.flowNode, user)) return fail('当前账号不是该审批节点办理人')
-      const nodeName = basicFlowNodes(project).find((n) => n.code === dr.flowNode)?.name || dr.flowNode
-      dr.auditTrail = [
-        ...(dr.auditTrail || []),
-        { node: dr.flowNode, nodeName, actor: user?.realName, actorNo: user?.employeeNo, pass: !!body.pass, opinion: body.opinion || '', time: nowStr() },
-      ]
-      if (!body.pass) {
-        dr.status = 'REJECTED'
-        return ok(true)
-      }
-      const next = nextBasicNode(project, dr.flowNode)
-      if (next) {
-        dr.flowNode = next
-        return ok(true)
-      }
-      // 全部通过：payload 写入台账
-      const payload = dr.payload || {}
-      const i = DB.projects.findIndex((x) => x.id === pid)
-      if (i >= 0) {
-        const ownerFromTeam = (payload.teamMembers || []).find((m: any) => m.roleCode === 'PROJECT_LEADER' || m.roleName === '项目负责人')?.userName
-        DB.projects[i] = {
-          ...DB.projects[i],
-          ...payload,
-          ownerName: payload.ownerName || ownerFromTeam || DB.projects[i].ownerName,
-          participants: payload.participants?.length ? payload.participants : DB.projects[i].participants,
-          teamMembers: payload.teamMembers?.length ? payload.teamMembers : DB.projects[i].teamMembers,
-        }
-      }
-      dr.status = 'APPROVED'
-      dr.flowNode = ''
-      return ok(true)
-    }),
     m('GET', '/projects/:id/overview', (p) => {
       const id = Number(p.id)
       const project = DB.projects.find((x) => x.id === id)
@@ -714,21 +388,12 @@ export async function mockRequest<T = any>(opts: RequestOptions): Promise<Res<T>
     const p = DB.projects.find((x) => x.id === m0.projectId)
     const finished = m0.status === 'DONE'
     const color = calcColor(m0.planDate, finished)
-    const raw = String(m0.status || 'DOING')
-    // 展示态 OVERDUE：仅 RED 且仍处于 DOING（销项审核中保持审核状态）
-    const status = color === 'RED' && (raw === 'DOING' || raw === 'OVERDUE') ? 'OVERDUE' : raw === 'OVERDUE' ? 'DOING' : raw
     return {
       ...m0,
       colorStatus: color,
-      status,
+      status: color === 'RED' && !finished ? 'OVERDUE' : m0.status,
       materials: mats,
       evidence: mats.length ? 1 : m0.evidence || 0,
-      baselinePlanDate: m0.baselinePlanDate,
-      delayCount: Number(m0.delayCount || 0),
-      lagReason: m0.lagReason,
-      lagMeasure: m0.lagMeasure,
-      dateLocked: msDateLocked(m0),
-      canDelete: msCanDelete(m0),
       projectName: p?.name,
       projectNo: p?.projectNo,
       ownerName: p?.ownerName,
@@ -746,25 +411,6 @@ export async function mockRequest<T = any>(opts: RequestOptions): Promise<Res<T>
       const ms = DB.milestones.filter((x) => x.projectId === p.id && x.year === y).map(attachMs)
       const plan = (p.annualPlans || []).find((x: any) => Number(x.year) === y)
       const annualGoal = plan?.annualGoal || ''
-      const annualStatus = String(plan?.finishStatus || '')
-      if (annualStatus === 'PENDING_AUDIT') {
-        todos.push({
-          taskType: 'COMPILE_AUDIT',
-          typeLabel: '里程碑清单审核',
-          projectId: p.id,
-          projectNo: p.projectNo,
-          projectName: p.name,
-          ownerName: p.ownerName,
-          year: y,
-          milestoneName: '里程碑节点与交付物清单',
-          planDate: plan?.dueDate,
-          colorStatus: 'YELLOW',
-          status: 'PENDING_AUDIT',
-          flowNode: '单位科研管理部门审核',
-          materialCount: 0,
-          materials: [],
-        })
-      }
       if (!ms.length) {
         todos.push({
           taskType: 'COMPILE',
@@ -785,25 +431,7 @@ export async function mockRequest<T = any>(opts: RequestOptions): Promise<Res<T>
       ms.forEach((item) => {
         total++
         if (item.status === 'DONE') done++
-        else if (isCloseAudit(item.status)) {
-          todos.push({
-            taskType: 'CLOSE_AUDIT',
-            typeLabel: '节点销项审核',
-            projectId: p.id,
-            projectNo: p.projectNo,
-            projectName: p.name,
-            ownerName: p.ownerName,
-            year: y,
-            milestoneId: item.id,
-            milestoneName: item.name,
-            planDate: item.planDate,
-            colorStatus: item.colorStatus,
-            status: item.status,
-            flowNode: item.status === 'CLOSE_DEPT_AUDIT' ? '项目承担部门负责人审核' : '单位科研管理部门负责人审核',
-            materialCount: item.materials?.length || 0,
-            materials: item.materials,
-          })
-        } else {
+        else {
           todos.push({
             taskType: 'CLOSE',
             typeLabel: '节点销项',
@@ -831,9 +459,6 @@ export async function mockRequest<T = any>(opts: RequestOptions): Promise<Res<T>
         ownerName: p.ownerName,
         annualGoal,
         planContent: plan?.planContent || '',
-        annualStatus,
-        annualAuditPending: annualStatus === 'PENDING_AUDIT',
-        annualArchived: annualStatus === 'DONE',
         year: y,
         warnColor: mergeColor(ms.map((x) => x.colorStatus)),
         msDone: ms.filter((x) => x.status === 'DONE').length,
@@ -843,10 +468,8 @@ export async function mockRequest<T = any>(opts: RequestOptions): Promise<Res<T>
     }
     const compile = todos.filter((t) => t.taskType === 'COMPILE').length
     const close = todos.filter((t) => t.taskType === 'CLOSE').length
-    const audit = todos.filter((t) => t.taskType === 'COMPILE_AUDIT').length
-    const closeAudit = todos.filter((t) => t.taskType === 'CLOSE_AUDIT').length
     return {
-      summary: { year: y, todo: todos.length, compile, close, audit, closeAudit, yellow, red, total, done },
+      summary: { year: y, todo: todos.length, compile, close, yellow, red, total, done },
       todos,
       projects: boards,
     }
@@ -864,7 +487,6 @@ export async function mockRequest<T = any>(opts: RequestOptions): Promise<Res<T>
       const id = Number(p.id)
       const x = DB.milestones.find((y) => y.id === id)
       if (!x) return fail('里程碑不存在')
-      if (!body.objectKey) return fail('缺少 objectKey：请先通过 /files/upload 上传文件')
       const mid = (DB.materials.reduce((n, i) => Math.max(n, i.id), 0) || 0) + 1
       const row = {
         id: mid,
@@ -875,9 +497,7 @@ export async function mockRequest<T = any>(opts: RequestOptions): Promise<Res<T>
         fileName: body.fileName,
         fileUrl: body.fileUrl,
         fileSize: body.fileSize,
-        objectKey: body.objectKey,
         version: 1,
-        uploadedAt: todayStr(),
       }
       const i = DB.materials.findIndex((y) => y.bizType === 'MILESTONE' && y.bizId === id && y.fieldCode === row.fieldCode)
       if (i >= 0) DB.materials[i] = { ...DB.materials[i], ...row, id: DB.materials[i].id }
@@ -896,120 +516,25 @@ export async function mockRequest<T = any>(opts: RequestOptions): Promise<Res<T>
       return ok(id)
     }),
     m('PUT', '/milestones/:id', (p) => {
-      const x = DB.milestones.find((y) => y.id === Number(p.id)) as any
-      if (!x) return fail('里程碑不存在')
-      // 契约：只接受 { name, budget, year, planDate? }；status / evidence / actualDate 一律忽略
-      if (body.planDate !== undefined && msDateLocked(x)) return fail('计划日期已进入基线，如需调整请走【延期申请】')
-      const patch: any = {}
-      if (body.name !== undefined) patch.name = body.name
-      if (body.budget !== undefined) patch.budget = body.budget
-      if (body.year !== undefined) patch.year = body.year
-      if (body.planDate !== undefined) patch.planDate = body.planDate
-      Object.assign(x, patch, { colorStatus: calcColor(patch.planDate ?? x.planDate, x.status === 'DONE') })
+      const x = DB.milestones.find((y) => y.id === Number(p.id))
+      if (x) Object.assign(x, body, { colorStatus: calcColor(body.planDate ?? x.planDate, (body.status ?? x.status) === 'DONE') })
       return ok(true)
     }),
     m('DELETE', '/milestones/:id', (p) => {
       const i = DB.milestones.findIndex((y) => y.id === Number(p.id))
-      if (i < 0) return fail('里程碑不存在')
-      if (!msCanDelete(DB.milestones[i])) return fail('该节点已进入基线、已有佐证或已提交销项，无法删除，请走变更')
-      DB.milestones.splice(i, 1)
+      if (i >= 0) DB.milestones.splice(i, 1)
       return ok(true)
     }),
     m('POST', '/milestones/:id/close', (p) => {
-      const x = DB.milestones.find((y) => y.id === Number(p.id)) as any
+      const x = DB.milestones.find((y) => y.id === Number(p.id))
       if (!x) return fail('里程碑不存在')
-      if (x.status === 'DONE') return fail('节点已完成销项')
-      if (isCloseAudit(x.status)) return fail('该节点销项已提交审核，请等待审核结果')
-      const hasFile = msEvidenceMaterials(x.id).some((mat) => mat.fileUrl)
-      if (!hasFile) return fail('请先上传节点佐证材料（计划模板不计入佐证），再提交销项')
-      const overdue = !!x.planDate && String(x.planDate).slice(0, 10) < todayStr()
-      if (overdue && !String(body?.lagReason || '').trim()) return fail('节点已逾期，请填写滞后原因后再提交销项')
-      Object.assign(x, {
-        status: 'CLOSE_DEPT_AUDIT',
-        evidence: 1,
-        lagReason: body?.lagReason ?? x.lagReason,
-        lagMeasure: body?.lagMeasure ?? x.lagMeasure,
-      })
-      return ok(true)
-    }),
-    m('POST', '/milestones/:id/close-audit', (p) => {
-      const x = DB.milestones.find((y) => y.id === Number(p.id)) as any
-      if (!x) return fail('里程碑不存在')
-      if (!isCloseAudit(x.status)) return fail('该节点不在销项审核中')
-      if (!body?.pass) {
-        Object.assign(x, { status: 'DOING', colorStatus: calcColor(x.planDate, false) })
-        return ok(true)
-      }
-      if (x.status === 'CLOSE_DEPT_AUDIT') {
-        x.status = 'CLOSE_UNIT_AUDIT'
-        return ok(true)
-      }
-      Object.assign(x, { status: 'DONE', actualDate: todayStr(), colorStatus: 'GREEN', evidence: 1 })
+      const hasFile = DB.materials.some((mat) => mat.bizType === 'MILESTONE' && mat.bizId === x.id && mat.fileUrl)
+      if (!x.evidence && !hasFile && !body?.evidence) return fail('请先上传节点佐证材料，再执行闭环销项')
+      Object.assign(x, { status: 'DONE', actualDate: new Date().toISOString().slice(0, 10), colorStatus: 'GREEN', evidence: 1 })
       DB.recomputeProject(x.projectId)
       return ok(true)
     }),
-    m('POST', '/milestones/:id/delay', (p) => {
-      const x = DB.milestones.find((y) => y.id === Number(p.id)) as any
-      if (!x) return fail('里程碑不存在')
-      if (x.status === 'DONE') return fail('已完成节点无需延期')
-      const newPlanDate = String(body?.newPlanDate || '').slice(0, 10)
-      const reason = String(body?.reason || '').trim()
-      if (!newPlanDate || !reason) return fail('请填写新计划日期与延期理由')
-      if (x.planDate && newPlanDate <= String(x.planDate).slice(0, 10)) return fail('新计划日期必须晚于当前计划完成时间')
-      const project = DB.projects.find((y) => y.id === x.projectId)
-      const id = (DB.changes.reduce((n, c) => Math.max(n, c.id), 0) || 0) + 1
-      const changeNo = `BG${new Date().getFullYear()}${7000 + id}`
-      DB.changes.unshift({
-        id,
-        changeNo,
-        projectId: x.projectId,
-        projectName: project?.name,
-        changeType: 'PROJECT',
-        category: 'MILESTONE_DELAY',
-        title: `里程碑「${x.name}」延期至 ${newPlanDate}`,
-        reason,
-        beforeValue: x.planDate,
-        afterValue: newPlanDate,
-        legalReview: 0,
-        status: 'DRAFT',
-        flowNode: '',
-        applicant: currentMockUser()?.realName || '当前用户',
-        createdAt: todayStr(),
-        milestoneId: x.id,
-        newPlanDate,
-        auditTrail: [],
-      })
-      return ok({ changeId: id, changeNo })
-    }),
-    m('POST', '/milestones/:id/lag', (p) => {
-      const x = DB.milestones.find((y) => y.id === Number(p.id)) as any
-      if (!x) return fail('里程碑不存在')
-      const lagReason = String(body?.lagReason || '').trim()
-      if (!lagReason) return fail('请填写滞后原因')
-      Object.assign(x, { lagReason, lagMeasure: String(body?.lagMeasure || '').trim() })
-      return ok(true)
-    }),
-    m('POST', '/milestones/annual-plan/audit', () => {
-      const projectId = Number(query.projectId || body?.projectId)
-      const year = Number(query.year || body?.year || new Date().getFullYear())
-      const project = DB.projects.find((x) => x.id === projectId)
-      if (!project) return fail('项目不存在')
-      const plan: any = (project.annualPlans || []).find((x: any) => Number(x.year) === year)
-      if (!plan || plan.finishStatus !== 'PENDING_AUDIT') return fail('该年度清单不在审核中')
-      if (!body?.pass) {
-        plan.finishStatus = 'RETURN'
-        return ok(true)
-      }
-      plan.finishStatus = 'DONE'
-      plan.colorStatus = 'BLUE'
-      // 存档：节点计划日期固化为基线
-      DB.milestones
-        .filter((x) => x.projectId === projectId && Number(x.year) === year)
-        .forEach((x: any) => {
-          if (!x.baselinePlanDate) x.baselinePlanDate = x.planDate
-        })
-      return ok(true)
-    }),
+    m('POST', '/milestones/:id/delay', () => fail('节点已超期，禁止直接修改日期，请通过【项目变更】模块发起延期审批')),
   )
 
   /* ------------------------------ 计划 ------------------------------ */
@@ -1165,48 +690,22 @@ export async function mockRequest<T = any>(opts: RequestOptions): Promise<Res<T>
     }),
     m('PUT', '/changes/:id', (p) => {
       const x = DB.changes.find((y) => y.id === Number(p.id))
-      if (!x) return fail('变更单不存在')
-      if (x.status !== 'DRAFT' && x.status !== 'REJECTED') return fail('仅草稿或已驳回的变更单可修改')
-      Object.assign(x, body)
+      if (x) Object.assign(x, body)
       return ok(true)
     }),
     m('DELETE', '/changes/:id', (p) => {
       const i = DB.changes.findIndex((y) => y.id === Number(p.id))
-      if (i < 0) return fail('变更单不存在')
-      const st = DB.changes[i].status
-      if (st !== 'DRAFT' && st !== 'REJECTED') return fail('仅草稿或已驳回的变更单可删除')
-      DB.changes.splice(i, 1)
+      if (i >= 0) DB.changes.splice(i, 1)
       return ok(true)
     }),
     m('POST', '/changes/:id/submit', (p) => {
       const x = DB.changes.find((y) => y.id === Number(p.id))
-      if (!x) return fail('变更单不存在')
-      if (x.status !== 'DRAFT' && x.status !== 'REJECTED') return fail('仅草稿或已驳回的变更单可提交')
-      Object.assign(x, { status: 'APPROVING', flowNode: changeFlowNodes(x)[0], auditTrail: [] })
+      if (x) Object.assign(x, { status: 'APPROVING', flowNode: x.changeType === 'DATA' ? '二级单位内部审批' : x.legalReview ? '法务部门审核' : '二级单位主管部门初审' })
       return ok(true)
     }),
     m('POST', '/changes/:id/audit', (p) => {
-      const x = DB.changes.find((y) => y.id === Number(p.id)) as any
-      if (!x) return fail('变更单不存在')
-      if (x.status !== 'APPROVING') return fail('变更单不在审批中')
-      const nodes = changeFlowNodes(x)
-      const user = currentMockUser()
-      x.auditTrail = [
-        ...(x.auditTrail || []),
-        { node: x.flowNode, nodeName: x.flowNode, actor: user?.realName, actorNo: user?.employeeNo, pass: !!body.pass, opinion: body.opinion || '', time: nowStr() },
-      ]
-      if (!body.pass) {
-        Object.assign(x, { status: 'REJECTED', flowNode: '' })
-        return ok(true)
-      }
-      const i = nodes.indexOf(String(x.flowNode || ''))
-      if (i >= 0 && i < nodes.length - 1) {
-        x.flowNode = nodes[i + 1]
-        return ok(true)
-      }
-      // 最后一个节点通过：APPROVED，延期变更同步更新节点计划日期
-      Object.assign(x, { status: 'APPROVED', flowNode: '' })
-      applyDelayChange(x)
+      const x = DB.changes.find((y) => y.id === Number(p.id))
+      if (x) x.status = body.pass ? 'APPROVED' : 'REJECTED'
       return ok(true)
     }),
   )
@@ -1219,10 +718,6 @@ export async function mockRequest<T = any>(opts: RequestOptions): Promise<Res<T>
       if (query.channelId) list = list.filter((x) => x.channelId === Number(query.channelId))
       if (query.keyword) list = list.filter((x) => (x.name || '').includes(query.keyword))
       return ok(paginate(list, query))
-    }),
-    m('GET', '/declarations/pending', () => {
-      const user = currentMockUser()
-      return ok(DB.declarations.filter((x) => ['SUBMITTED', 'APPROVING'].includes(String(x.status)) && isMockDeclarationApprover(x, user)))
     }),
     m('GET', '/declarations/:id', (p) => {
       const d = DB.declarations.find((x) => x.id === Number(p.id))
@@ -1239,8 +734,6 @@ export async function mockRequest<T = any>(opts: RequestOptions): Promise<Res<T>
     m('POST', '/declarations', () => {
       const id = (DB.declarations.reduce((m, x) => Math.max(m, x.id), 0) || 0) + 1
       const ch = DB.channels.find((c) => c.id === Number(body.channelId))
-      const workflowVersion = declarationWorkflowId({ ...body, channelCode: ch?.channelCode, channelName: ch?.channelName, flowNodes: ch?.flowNodes, posts: body.posts || {} })
-      const snapshotPosts = { ...(body.posts || {}), __workflow: workflowVersion }
       const applicant =
         body.applicant ||
         (body.posts?.contact ? String(body.posts.contact).replace(/（.*?）/, '').trim() : '') ||
@@ -1252,10 +745,8 @@ export async function mockRequest<T = any>(opts: RequestOptions): Promise<Res<T>
         channelName: ch?.channelName,
         levelCode: ch?.levelCode,
         applyAt: new Date().toISOString().slice(0, 10),
+        needApproval: 1,
         ...body,
-        needApproval: workflowVersion === 'report-v1' ? 0 : 1,
-        posts: snapshotPosts,
-        remark: `__DECLARATION_POSTS__:${JSON.stringify(snapshotPosts)}`,
         applicant,
         orgName: body.leadOrgName || body.orgName,
       })
@@ -1278,70 +769,37 @@ export async function mockRequest<T = any>(opts: RequestOptions): Promise<Res<T>
     }),
     m('PUT', '/declarations/:id', (p) => {
       const x = DB.declarations.find((y) => y.id === Number(p.id))
-      if (x) {
-        const ch = DB.channels.find((c) => c.id === Number(body.channelId ?? x.channelId))
-        const version = declarationWorkflowId({
-          ...x,
-          ...body,
-          status: 'DRAFT',
-          channelCode: ch?.channelCode,
-          channelName: ch?.channelName,
-          flowNodes: ch?.flowNodes,
-          posts: {},
-        })
-        const posts = { ...declarationPosts(x), ...(body.posts || {}), __workflow: version }
-        Object.assign(x, body, {
-          channelName: ch?.channelName,
-          levelCode: ch?.levelCode,
-          needApproval: version === 'report-v1' ? 0 : 1,
-          posts,
-          remark: `__DECLARATION_POSTS__:${JSON.stringify(posts)}`,
-        })
-      }
+      if (x) Object.assign(x, body)
       return ok(true)
     }),
     m('POST', '/declarations/:id/submit', (p) => {
       const x = DB.declarations.find((y) => y.id === Number(p.id))
       if (!x) return fail('申报记录不存在，请先暂存')
-      if (!['DRAFT', 'REJECTED'].includes(String(x.status))) return fail('仅草稿或退回的申报可以提交审核')
-      const submitUser = currentMockUser()
-      const submitLabels = ['contact', 'leader', 'techLeader', 'supervisor']
-        .map((key) => declarationPosts(x)[key]).filter(Boolean).map((label) => ({ label: String(label) }))
-      if (submitUser?.identityCode !== 'admin' && submitLabels.length && !canActOnHandlers(submitLabels, submitUser)) {
-        return fail('仅本项目指定填报人或项目团队成员可以提交')
-      }
       const missing = DB.materials
         .filter((y) => y.bizType === 'DECLARATION' && y.bizId === Number(p.id) && y.required === 1 && !y.locked && !y.fileName)
         .map((y) => y.fieldName)
       if (missing.length) return fail(`渠道材料未齐，请上传：${missing.join('、')}`)
-      const posts = declarationPosts(x)
-      const version = declarationWorkflowId({ ...x, posts })
-      const first = declarationAuditNodes({ ...x, posts }).at(0)
-      if (first) Object.assign(x, { status: 'APPROVING', flowNode: first.title, needApproval: version === 'report-v1' ? 0 : 1 })
+      Object.assign(x, { status: 'APPROVING', flowNode: '项目负责人' })
       return ok(true)
     }),
     m('POST', '/declarations/:id/audit', (p) => {
       const x = DB.declarations.find((y) => y.id === Number(p.id))
       if (!x) return fail('申报记录不存在')
-      const posts = declarationPosts(x)
-      const chain = declarationAuditNodes({ ...x, posts })
-      const current = chain.find((node) => node.title === x.flowNode)
-      if (x.status !== 'APPROVING' || !current) return fail('申报当前不在有效审核节点')
-      if (!isMockDeclarationApprover(x, currentMockUser())) return fail('仅本节点指定办理人可以办理')
-      if (typeof body.pass !== 'boolean') return fail('请选择通过或退回')
-      if (body.pass && current.evidence && (!String(body.opinion || '').trim() || !String(body.evidence || '').trim())) {
-        return fail('请填写办理结论及评审纪要/发布文件等佐证引用')
-      }
+      const chain = ['项目负责人', '项目承担部门负责人', '二级总师', '单位财务部门负责人', '单位科技部门负责人', '单位分管领导', '一级总师', '总部科研项目处']
       if (!body.pass) {
-        Object.assign(x, { status: 'REJECTED', opinion: body.opinion, flowNode: declarationNodes({ ...x, posts })[0]?.title })
+        Object.assign(x, { status: 'REJECTED', opinion: body.opinion, flowNode: '项目联系人' })
       } else {
-        let i = chain.findIndex((t) => t.title === x.flowNode || t.title.includes(String(x.flowNode || '')))
+        if (x.needApproval === 0 && x.flowNode === '项目负责人') {
+          Object.assign(x, { status: 'REPORTED', opinion: body.opinion, flowNode: '线上报备归档' })
+          return ok(true)
+        }
+        let cur = x.flowNode === '承办部门负责人' ? '项目承担部门负责人' : String(x.flowNode || '')
+        let i = chain.indexOf(cur)
+        if (i < 0) i = chain.findIndex((t) => cur.includes(t) || t.includes(cur))
         const next = i < 0 ? chain[0] : i >= chain.length - 1 ? null : chain[i + 1]
         Object.assign(x, next
-          ? { status: 'APPROVING', opinion: body.opinion, flowNode: next.title }
-          : x.needApproval === 0
-            ? { status: 'REPORTED', opinion: body.opinion, flowNode: '线上报备归档' }
-            : { status: 'APPROVED', opinion: body.opinion, flowNode: '归档' })
+          ? { status: 'APPROVING', opinion: body.opinion, flowNode: next }
+          : { status: 'APPROVED', opinion: body.opinion, flowNode: '归档' })
       }
       return ok(true)
     }),
@@ -1396,7 +854,15 @@ export async function mockRequest<T = any>(opts: RequestOptions): Promise<Res<T>
       const pid = Number(p.projectId)
       let acc = DB.acceptances.find((x) => x.projectId === pid)
       if (!acc) {
-        acc = { id: Math.max(...DB.acceptances.map((x) => x.id || 0)) + 1, projectId: pid, status: 'NOT_STARTED' }
+        const project = DB.projects.find((x) => x.id === pid)
+        acc = {
+          id: Math.max(0, ...DB.acceptances.map((x) => x.id || 0)) + 1,
+          projectId: pid,
+          status: 'NOT_STARTED',
+          currentNode: 'ACCEPT_GATE',
+          acceptLevel: project?.levelCode === 'NATIONAL' ? 'NATIONAL' : project?.levelCode === 'LOCAL' ? 'LOCAL' : 'COMPANY',
+          expertReview: project?.levelCode === 'NATIONAL' ? 1 : 0,
+        }
         DB.acceptances.push(acc)
       }
       let items = DB.acceptanceItems.filter((x) => x.acceptanceId === acc!.id)
@@ -1411,30 +877,125 @@ export async function mockRequest<T = any>(opts: RequestOptions): Promise<Res<T>
       const ms = DB.milestones.filter((x) => x.projectId === pid)
       const dvs = DB.deliverables.filter((x) => x.projectId === pid)
       const pays = DB.payments.filter((x) => x.projectId === pid)
+      const evals = DB.evaluations.filter((x) => x.projectId === pid)
       const msOpen = ms.filter((x) => x.status !== 'DONE').length
-      const dvOpen = dvs.filter((x) => x.status === 'OVERDUE').length
+      const dvOverdue = dvs.filter((x) => x.status === 'OVERDUE' || x.colorStatus === 'RED').length
+      const dvDone = dvs.filter((x) => x.status === 'DELIVERED').length
       const payOpen = pays.filter((x) => x.writeoffStatus !== 'WRITTEN').length
+      const evalOpen = evals.filter((x) => x.result === 'FAIL' && x.status !== 'DONE').length
       return ok([
-        { key: 'MILESTONE', label: '全部里程碑闭环', passed: msOpen === 0, message: msOpen === 0 ? '全部里程碑已完成销项' : `仍有 ${msOpen} 个里程碑未完成闭环` },
-        { key: 'DELIVERABLE', label: '外协交付物验收合格', passed: dvOpen === 0, message: dvOpen === 0 ? '交付物状态正常' : `存在 ${dvOpen} 项交付物已逾期` },
-        { key: 'FUND', label: '节点经费匹配核销完毕', passed: payOpen === 0, message: payOpen === 0 ? '经费已全部核销' : `存在 ${payOpen} 笔经费未核销` },
-        { key: 'CORE_DV', label: '核心交付物已交付', passed: dvs.filter((x) => x.status === 'DELIVERED').length > 0, message: `已交付 ${dvs.filter((x) => x.status === 'DELIVERED').length}/${dvs.length} 项` },
+        { key: 'MILESTONE', label: '里程碑全闭环', passed: msOpen === 0, message: msOpen === 0 ? '全部里程碑已完成销项' : `仍有 ${msOpen} 个里程碑未完成闭环` },
+        { key: 'CORE_DV', label: '核心交付物齐套', passed: dvOverdue === 0 && (dvs.length === 0 || dvDone === dvs.length), message: dvOverdue === 0 ? `核心交付物已交付 ${dvDone}/${dvs.length}` : `已交付 ${dvDone}/${dvs.length}，逾期 ${dvOverdue} 项` },
+        { key: 'FUND', label: '经费核销与凭证归档', passed: payOpen === 0, message: payOpen === 0 ? '经费已全部核销' : `存在 ${payOpen} 笔经费未核销` },
+        { key: 'EVAL_RECTIFY', label: '不合格评估整改', passed: evalOpen === 0, message: evalOpen === 0 ? '无待整改不合格项' : `仍有 ${evalOpen} 项不合格评估未整改闭环` },
       ])
+    }),
+    m('GET', '/acceptance/:projectId/result-handoff', (p) => {
+      const pid = Number(p.projectId)
+      const project = DB.projects.find((x) => x.id === pid)
+      const acc = DB.acceptances.find((x) => x.projectId === pid)
+      const materials = DB.acceptanceItems.filter((x) => x.acceptanceId === acc?.id)
+      const deliverables = DB.deliverables.filter((x) => x.projectId === pid)
+      const delivered = deliverables.filter((x) => x.status === 'DELIVERED')
+      const achievementNos = Array.from(new Set(delivered.map((x) => x.achievementNo).filter(Boolean)))
+      return ok({
+        projectId: pid,
+        projectNo: project?.projectNo,
+        projectName: project?.name,
+        acceptanceId: acc?.id,
+        acceptLevel: acc?.acceptLevel,
+        acceptanceStatus: acc?.status || 'NOT_STARTED',
+        currentNode: acc?.currentNode || 'ACCEPT_GATE',
+        acceptedAt: acc?.finishAt,
+        conclusion: acc?.conclusion,
+        partnerDueDate: acc?.partnerDueDate,
+        resultReady: acc?.status === 'DONE',
+        nextBiz: 'ACHIEVEMENT_ACCEPTANCE',
+        nextBizStatus: acc?.status === 'DONE' ? 'READY' : 'WAIT_ACCEPTANCE_DONE',
+        materialCount: materials.length,
+        deliverableCount: deliverables.length,
+        deliveredDeliverableCount: delivered.length,
+        acceptanceMaterials: materials,
+        deliveredDeliverables: delivered,
+        achievementNos,
+      })
     }),
     m('POST', '/acceptance/:projectId/submit', (p) => {
       const x = DB.acceptances.find((y) => y.projectId === Number(p.projectId))
-      if (x) Object.assign(x, { status: 'APPLYING', applyAt: new Date().toISOString() })
+      const items = DB.acceptanceItems.filter((y) => y.acceptanceId === x?.id)
+      const missing = items.filter((y) => y.required && !y.locked && !y.fileUrl)
+      if (missing.length) return fail(`验收材料未齐套，请先上传：${missing.map((y) => y.materialName).join('、')}`)
+      if (x) Object.assign(x, {
+        status: 'APPLYING',
+        currentNode: 'ACCEPT_UNIT_REVIEW',
+        latestOpinion: '项目团队已提交验收申请',
+        latestProcessAt: new Date().toISOString(),
+        applyAt: new Date().toISOString(),
+      })
       return ok(true)
     }),
     m('POST', '/acceptance/:projectId/materials', (p) => {
       const x = DB.acceptanceItems.find((y) => y.fieldCode === body.fieldCode)
-      if (x) Object.assign(x, { fileUrl: body.fileUrl || `/files/${body.fieldCode}.pdf`, status: 'UPLOADED' })
+      if (x) Object.assign(x, {
+        fileUrl: body.fileUrl || `/files/${body.fieldCode}.pdf`,
+        fileName: body.fileName || `${x.materialName}.pdf`,
+        fileSize: body.fileSize || 131072,
+        uploadedBy: '林晚晴',
+        uploadedAt: new Date().toISOString(),
+        status: 'UPLOADED',
+      })
       return ok(true)
     }),
     m('POST', '/acceptance/:projectId/audit', (p) => {
       const x = DB.acceptances.find((y) => y.projectId === Number(p.projectId))
-      if (x && body.pass) {
-        Object.assign(x, { status: 'DONE', conclusion: body.opinion, finishAt: new Date().toISOString(), partnerDueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10) })
+      if (!x) return ok(true)
+      const node = x.currentNode || 'ACCEPT_UNIT_REVIEW'
+      const opinion = body.opinion || '同意'
+      if (!body.pass) {
+        Object.assign(x, {
+          status: 'APPLYING',
+          currentNode: 'ACCEPT_APPLY',
+          latestOpinion: `退回：${opinion}`,
+          latestProcessAt: new Date().toISOString(),
+        })
+        return ok(true)
+      }
+      if (node === 'ACCEPT_UNIT_REVIEW') {
+        Object.assign(x, {
+          status: 'ACCEPTING',
+          currentNode: x.expertReview ? 'ACCEPT_CHIEF_REVIEW' : 'ACCEPT_HQ_TECH',
+          latestOpinion: opinion || '初审通过',
+          latestProcessAt: new Date().toISOString(),
+        })
+      } else if (node === 'ACCEPT_CHIEF_REVIEW') {
+        Object.assign(x, {
+          status: 'ACCEPTING',
+          currentNode: 'ACCEPT_HQ_TECH',
+          latestOpinion: opinion || '责任总师技术复核通过',
+          latestProcessAt: new Date().toISOString(),
+        })
+      } else if (node === 'ACCEPT_HQ_TECH') {
+        Object.assign(x, {
+          status: 'ACCEPTING',
+          currentNode: 'ACCEPT_HQ_FINAL',
+          latestOpinion: opinion || '技术初审通过',
+          latestProcessAt: new Date().toISOString(),
+        })
+      } else if (node === 'ACCEPT_HQ_FINAL') {
+        Object.assign(x, {
+          status: 'DONE',
+          currentNode: 'ACCEPT_ARCHIVE',
+          conclusion: opinion || '验收合格，同意办结',
+          latestOpinion: opinion || '验收合格，同意办结',
+          latestProcessAt: new Date().toISOString(),
+          finishAt: new Date().toISOString(),
+          partnerDueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+        })
+        const project = DB.projects.find((y) => y.id === Number(p.projectId))
+        if (project) Object.assign(project, {
+          acceptStatus: x.acceptLevel === 'NATIONAL' ? '国家级验收' : x.acceptLevel === 'LOCAL' ? '属地主管部门验收' : '公司级验收',
+          status: x.acceptLevel === 'COMPANY' ? 'COMPANY_ACCEPTED' : 'GOV_ACCEPTED',
+        })
       }
       return ok(true)
     }),
@@ -1516,6 +1077,61 @@ export async function mockRequest<T = any>(opts: RequestOptions): Promise<Res<T>
       if (x.grade === 'FAIL' && !DB.blacklist.some((b: any) => b.partnerName === x.partnerName)) {
         DB.blacklist.push({ id: DB.blacklist.length + 1, partnerName: x.partnerName, reason: `评价得分 ${score} 分，不合格，纳入黑名单`, inDate: x.evalDate })
       }
+      return ok(true)
+    }),
+  )
+
+  /* ------------------------------ 成果转化 ------------------------------ */
+  routes.push(
+    m('GET', '/transforms', () => {
+      const kw = String(query.keyword || '').trim()
+      let list = DB.transforms.map((x) => {
+        const p = DB.projects.find((y) => y.id === x.projectId)
+        return { ...x, projectName: p?.name, projectNo: x.projectNo || p?.projectNo }
+      })
+      if (query.projectId) list = list.filter((x) => x.projectId === Number(query.projectId))
+      if (query.status) list = list.filter((x) => x.status === query.status)
+      if (query.transformWay) list = list.filter((x) => x.transformWay === query.transformWay)
+      if (query.dutyOrg) list = list.filter((x) => x.dutyOrg === query.dutyOrg)
+      if (kw) {
+        list = list.filter(
+          (x) =>
+            String(x.name || '').includes(kw) ||
+            String(x.achievementNo || '').includes(kw) ||
+            String(x.projectNo || '').includes(kw) ||
+            String(x.projectName || '').includes(kw),
+        )
+      }
+      return ok(paginate(list, query))
+    }),
+    m('GET', '/transforms/:id', (p) => ok(DB.transforms.find((x) => x.id === Number(p.id)))),
+    m('POST', '/transforms', () => {
+      const id = Math.max(...DB.transforms.map((x) => x.id)) + 1
+      DB.transforms.unshift({ id, achievementNo: `CG${new Date().getFullYear()}${3000 + id}`, status: 'NOT_STARTED', itemCount: 0, colorStatus: calcColor(body.planDate, false), ...body })
+      return ok(id)
+    }),
+    m('PUT', '/transforms/:id', (p) => {
+      const x = DB.transforms.find((y) => y.id === Number(p.id))
+      if (x) Object.assign(x, body, { colorStatus: calcColor(body.planDate ?? x.planDate, (body.status ?? x.status) === 'DONE') })
+      return ok(true)
+    }),
+    m('DELETE', '/transforms/:id', (p) => {
+      const i = DB.transforms.findIndex((y) => y.id === Number(p.id))
+      if (i >= 0) DB.transforms.splice(i, 1)
+      return ok(true)
+    }),
+    m('POST', '/transforms/:id/bind', (p) => {
+      const t = DB.transforms.find((y) => y.id === Number(p.id))
+      if (!t) return fail('成果包不存在')
+      const ids: number[] = body.deliverableIds || []
+      const illegal = ids.filter((i) => (DB.deliverables.find((x) => x.id === i)?.status || '') !== 'DELIVERED')
+      if (illegal.length) return fail('仅状态为「已交付」的交付物可纳入成果转化包')
+      ids.forEach((i) => {
+        const dv = DB.deliverables.find((x) => x.id === i)
+        if (dv) dv.achievementNo = t.achievementNo
+      })
+      t.itemCount = ids.length
+      t.deliverables = DB.deliverables.filter((x) => x.achievementNo === t.achievementNo)
       return ok(true)
     }),
   )

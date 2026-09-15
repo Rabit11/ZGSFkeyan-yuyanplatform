@@ -21,17 +21,7 @@ export const projectApi = {
   create: (data: any) => http.post('/api/projects', data),
   update: (id: number, data: any) => http.put(`/api/projects/${id}`, data),
   updateFromFormMaint: (id: number, data: any) => http.put(`/api/projects/form-maint/${id}`, data),
-  /** 年度目标：只接受 { year, annualGoal, planContent, dueDate? } */
   saveAnnualPlan: (id: number, data: any) => http.put(`/api/projects/${id}/annual-plan`, data),
-  /** 年度清单提交审核（PENDING_AUDIT），要求该年度至少 1 个里程碑 */
-  submitAnnualPlan: (id: number, data: { year: number }) => http.post(`/api/projects/${id}/annual-plan/submit`, data),
-  /** 基本信息审批草稿 */
-  basicDraft: (id: number) => http.get(`/api/projects/${id}/basic-draft`),
-  saveBasicDraft: (id: number, data: any) => http.put(`/api/projects/${id}/basic-draft`, data),
-  submitBasicDraft: (id: number) => http.post(`/api/projects/${id}/basic-draft/submit`),
-  auditBasicDraft: (id: number, data: { pass: boolean; opinion?: string }) =>
-    http.post(`/api/projects/${id}/basic-draft/audit`, data),
-  pendingBasicDrafts: () => http.get('/api/projects/basic-drafts/pending'),
   saveMaintenanceMaterial: (id: number, data: any) => http.post(`/api/projects/${id}/maintenance/materials`, data),
   submitMaintenance: (id: number) => http.post(`/api/projects/${id}/maintenance/submit`),
   unitAuditMaintenance: (id: number, data: any) => http.post(`/api/projects/${id}/maintenance/unit-audit`, data),
@@ -52,13 +42,9 @@ export const milestoneApi = {
   create: (data: any) => http.post('/api/milestones', data),
   update: (id: number, data: any) => http.put(`/api/milestones/${id}`, data),
   remove: (id: number) => http.del(`/api/milestones/${id}`),
-  /** 提交销项：逾期节点 lagReason 必填；成功后状态为 CLOSE_DEPT_AUDIT */
-  close: (id: number, data?: { lagReason?: string; lagMeasure?: string }) => http.post(`/api/milestones/${id}/close`, data || {}),
-  auditClose: (id: number, data?: { pass: boolean; remark?: string }) => http.post(`/api/milestones/${id}/close-audit`, data),
-  /** 延期申请：后端生成 MILESTONE_DELAY 变更草稿，返回 { changeId, changeNo } */
-  delay: (id: number, data: { newPlanDate: string; reason: string }) => http.post(`/api/milestones/${id}/delay`, data),
-  /** 登记滞后原因（仅项目负责人） */
-  lag: (id: number, data: { lagReason: string; lagMeasure: string }) => http.post(`/api/milestones/${id}/lag`, data),
+  close: (id: number, data?: any) => http.post(`/api/milestones/${id}/close`, data),
+  auditClose: (id: number, data?: any) => http.post(`/api/milestones/${id}/close-audit`, data),
+  delay: (id: number) => http.post(`/api/milestones/${id}/delay`),
   materials: (id: number) => http.get(`/api/milestones/${id}/materials`),
   saveMaterial: (id: number, data: any) => http.post(`/api/milestones/${id}/materials`, data),
   auditAnnualPlan: (projectId: number, data: any) =>
@@ -91,8 +77,6 @@ export const fundApi = {
   payments: (projectId: number) => http.get(`/api/projects/${projectId}/fund/payments`),
   createPayment: (data: any) => http.post('/api/fund/payments', data),
   writeoff: (id: number, data?: any) => http.post(`/api/fund/payments/${id}/writeoff`, data || { pass: true }),
-  reversePayment: (id: number, data?: { reason?: string }) =>
-    http.post(`/api/fund/payments/${id}/reverse`, data || {}),
   hqBudgets: (year?: number) => http.get('/api/hq-fund/budgets', { year }),
   createHqBudget: (data: any) => http.post('/api/hq-fund/budgets', data),
   lockHqBudget: (id: number) => http.post(`/api/hq-fund/budgets/${id}/lock`),
@@ -109,13 +93,6 @@ export const evalApi = {
   create: (data: any) => http.post('/api/evaluations', data),
   update: (id: number, data: any) => http.put(`/api/evaluations/${id}`, data),
   remove: (id: number) => http.del(`/api/evaluations/${id}`),
-  submit: (id: number) => http.post(`/api/evaluations/${id}/submit`),
-  audit: (id: number, data: { pass: boolean }) => http.post(`/api/evaluations/${id}/audit`, data),
-  rectify: (id: number, data: { rectifyNote: string }) => http.post(`/api/evaluations/${id}/rectify`, data),
-  materials: (id: number) => http.get(`/api/evaluations/${id}/materials`),
-  uploadMaterial: (id: number, data: any) => http.post(`/api/evaluations/${id}/materials`, data),
-  removeMaterial: (id: number, materialId: number) =>
-    http.del(`/api/evaluations/${id}/materials/${materialId}`),
 }
 
 export const changeApi = {
@@ -129,7 +106,6 @@ export const changeApi = {
 
 export const declarationApi = {
   page: (params: any) => http.get('/api/declarations', params),
-  pending: () => http.get('/api/declarations/pending'),
   detail: (id: number) => http.get(`/api/declarations/${id}`),
   create: (data: any) => http.post('/api/declarations', data),
   update: (id: number, data: any) => http.put(`/api/declarations/${id}`, data),
@@ -148,6 +124,7 @@ export const acceptanceApi = {
   detail: (projectId: number) => http.get(`/api/acceptance/${projectId}`),
   check: (projectId: number) => http.post(`/api/acceptance/${projectId}/check`),
   submit: (projectId: number) => http.post(`/api/acceptance/${projectId}/submit`),
+  resultHandoff: (projectId: number) => http.get(`/api/acceptance/${projectId}/result-handoff`),
   materials: (projectId: number, data: any) =>
     http.post(`/api/acceptance/${projectId}/materials`, data),
   audit: (projectId: number, data: any) =>

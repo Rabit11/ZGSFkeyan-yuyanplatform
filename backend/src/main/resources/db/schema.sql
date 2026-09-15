@@ -141,9 +141,7 @@ CREATE TABLE `sys_warning` (
   `title`        VARCHAR(255) DEFAULT NULL,
   `content`      VARCHAR(1000) DEFAULT NULL,
   `receiver`     VARCHAR(255) DEFAULT NULL         COMMENT '接收角色，逗号分隔',
-  `receiver_nos` VARCHAR(500) DEFAULT NULL         COMMENT '接收人工号，逗号分隔',
   `is_read`      TINYINT     NOT NULL DEFAULT 0,
-  `read_nos`     VARCHAR(1000) DEFAULT NULL        COMMENT '已读人工号，逗号分隔',
   `created_at`   DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_project` (`project_id`),
@@ -369,21 +367,13 @@ CREATE TABLE `proj_milestone` (
   `year`        INT         DEFAULT NULL,
   `name`        VARCHAR(255) NOT NULL               COMMENT '里程碑名称',
   `plan_date`   DATE        DEFAULT NULL,
-  `baseline_plan_date` DATE DEFAULT NULL           COMMENT '基线计划日期（年度清单审核存档时固化）',
-  `delay_count` INT         NOT NULL DEFAULT 0      COMMENT '延期变更次数',
   `actual_date` DATE        DEFAULT NULL,
   `budget`      DECIMAL(18,2) NOT NULL DEFAULT 0    COMMENT '节点预算（万元）',
-  `status`      VARCHAR(32) NOT NULL DEFAULT 'DOING' COMMENT 'DOING/CLOSE_DEPT_AUDIT/CLOSE_UNIT_AUDIT/DONE（OVERDUE 为展示态）',
+  `status`      VARCHAR(32) NOT NULL DEFAULT 'DOING' COMMENT 'DOING/DONE/OVERDUE',
   `color_status` VARCHAR(16) NOT NULL DEFAULT 'BLUE',
   `evidence`    TINYINT     NOT NULL DEFAULT 0      COMMENT '是否已上传佐证材料',
-  `lag_reason`  VARCHAR(1000) DEFAULT NULL          COMMENT '滞后原因（逾期节点销项必填）',
-  `lag_measure` VARCHAR(1000) DEFAULT NULL          COMMENT '滞后处理措施',
-  `audit_by`    VARCHAR(64) DEFAULT NULL            COMMENT '最近审核人',
-  `audit_at`    DATETIME    DEFAULT NULL            COMMENT '最近审核时间',
-  `audit_opinion` VARCHAR(1000) DEFAULT NULL        COMMENT '最近审核意见',
+  `lag_reason`  VARCHAR(1000) DEFAULT NULL,
   `created_at`  DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`  DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `deleted`     TINYINT     NOT NULL DEFAULT 0      COMMENT '逻辑删除',
   PRIMARY KEY (`id`),
   KEY `idx_project` (`project_id`),
   KEY `idx_plan_date` (`plan_date`)
@@ -416,15 +406,8 @@ CREATE TABLE `proj_evaluation` (
   `name`        VARCHAR(255) DEFAULT NULL,
   `due_date`    DATE        DEFAULT NULL,
   `result`      VARCHAR(16) DEFAULT NULL            COMMENT 'PASS合格/FAIL不合格',
-  `status`      VARCHAR(32) NOT NULL DEFAULT 'DRAFT' COMMENT 'DRAFT/SUBMITTED/UNIT_OK/DONE/RECTIFYING/REJECTED',
+  `status`      VARCHAR(32) NOT NULL DEFAULT 'PENDING',
   `report_file` VARCHAR(512) DEFAULT NULL,
-  `channel_code` VARCHAR(64) DEFAULT NULL           COMMENT '项目渠道编码（审批链差异）',
-  `conclusion`  VARCHAR(2000) DEFAULT NULL          COMMENT '评审结论',
-  `rectify_note` VARCHAR(2000) DEFAULT NULL         COMMENT '整改说明',
-  `rectify_done` TINYINT     NOT NULL DEFAULT 0     COMMENT '整改是否完成 0否/1是',
-  `submit_by`   VARCHAR(64) DEFAULT NULL,
-  `audit_by`    VARCHAR(64) DEFAULT NULL,
-  `audit_at`    DATETIME    DEFAULT NULL,
   `created_at`  DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_project` (`project_id`)
@@ -442,44 +425,16 @@ CREATE TABLE `proj_change` (
   `reason`      VARCHAR(2000) DEFAULT NULL,
   `before_value` VARCHAR(2000) DEFAULT NULL,
   `after_value`  VARCHAR(2000) DEFAULT NULL,
-  `milestone_id` BIGINT     DEFAULT NULL            COMMENT '延期变更对应里程碑',
-  `new_plan_date` DATE      DEFAULT NULL            COMMENT '延期变更新计划日期',
   `legal_review` TINYINT    NOT NULL DEFAULT 0      COMMENT '重大变更是否需法务审核',
   `status`      VARCHAR(32) NOT NULL DEFAULT 'DRAFT' COMMENT 'DRAFT/APPROVING/APPROVED/REJECTED',
   `flow_node`   VARCHAR(128) DEFAULT NULL,
   `applicant`   VARCHAR(64) DEFAULT NULL,
-  `audit_by`    VARCHAR(64) DEFAULT NULL,
-  `audit_at`    DATETIME    DEFAULT NULL,
-  `audit_opinion` VARCHAR(1000) DEFAULT NULL,
-  `audit_trail` MEDIUMTEXT  DEFAULT NULL            COMMENT '审批记录 JSON',
   `created_at`  DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at`  DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `deleted`     TINYINT     NOT NULL DEFAULT 0,
-  PRIMARY KEY (`id`),
-  KEY `idx_project` (`project_id`),
-  KEY `idx_status` (`status`),
-  KEY `idx_milestone` (`milestone_id`)
-) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '项目变更 / 数据变更';
-
-DROP TABLE IF EXISTS `proj_basic_draft`;
-CREATE TABLE `proj_basic_draft` (
-  `id`             BIGINT      NOT NULL AUTO_INCREMENT,
-  `project_id`     BIGINT      NOT NULL,
-  `payload`        MEDIUMTEXT  DEFAULT NULL COMMENT '待审批的基本信息快照 JSON（含参研单位、团队）',
-  `status`         VARCHAR(32) NOT NULL DEFAULT 'DRAFT' COMMENT 'DRAFT/APPROVING/APPROVED/REJECTED',
-  `flow_node`      VARCHAR(64) DEFAULT NULL COMMENT '当前节点编码 PROJECT_LEADER/UNIT_TECH/UNIT_LEADER/HQ',
-  `flow_node_name` VARCHAR(128) DEFAULT NULL,
-  `submitted_by`   VARCHAR(64) DEFAULT NULL,
-  `submitted_no`   VARCHAR(32) DEFAULT NULL,
-  `submitted_at`   DATETIME    DEFAULT NULL,
-  `audit_trail`    MEDIUMTEXT  DEFAULT NULL COMMENT '审批记录 JSON',
-  `created_at`     DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`     DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `deleted`        TINYINT     NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   KEY `idx_project` (`project_id`),
   KEY `idx_status` (`status`)
-) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '项目基本信息审批草稿';
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '项目变更 / 数据变更';
 
 -- ---------------------------------------------------------------------------
 -- 六、经费域
@@ -568,6 +523,9 @@ CREATE TABLE `proj_acceptance` (
   `project_id`  BIGINT      NOT NULL,
   `accept_level` VARCHAR(32) DEFAULT NULL           COMMENT 'UNIT/COMPANY/NATIONAL/LOCAL',
   `status`      VARCHAR(32) NOT NULL DEFAULT 'NOT_STARTED' COMMENT 'NOT_STARTED/CHECKING/APPLYING/ACCEPTING/DONE',
+  `current_node` VARCHAR(64) DEFAULT NULL           COMMENT '当前审批节点',
+  `latest_opinion` VARCHAR(1000) DEFAULT NULL       COMMENT '最近流程意见',
+  `latest_process_at` DATETIME DEFAULT NULL         COMMENT '最近流程处理时间',
   `apply_at`    DATETIME    DEFAULT NULL,
   `finish_at`   DATETIME    DEFAULT NULL,
   `conclusion`  VARCHAR(1000) DEFAULT NULL,
@@ -589,6 +547,10 @@ CREATE TABLE `proj_acceptance_item` (
   `required`    TINYINT     NOT NULL DEFAULT 0,
   `locked`      TINYINT     NOT NULL DEFAULT 0,
   `file_url`    VARCHAR(512) DEFAULT NULL,
+  `file_name`   VARCHAR(255) DEFAULT NULL,
+  `file_size`   BIGINT      DEFAULT NULL,
+  `uploaded_by` VARCHAR(64) DEFAULT NULL,
+  `uploaded_at` DATETIME    DEFAULT NULL,
   `status`      VARCHAR(32) DEFAULT 'EMPTY'         COMMENT 'EMPTY/UPLOADED/APPROVED',
   `sort`        INT         NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
@@ -668,13 +630,6 @@ CREATE TABLE `achv_transform` (
   `plan_date`     DATE        DEFAULT NULL,
   `actual_date`   DATE        DEFAULT NULL,
   `status`        VARCHAR(32) NOT NULL DEFAULT 'NOT_STARTED' COMMENT 'NOT_STARTED未启动/NEGOTIATING洽谈中/SIGNED已签协议/DONE已完成',
-  `legacy_record` TINYINT NOT NULL DEFAULT 0 COMMENT '历史来源待核对，不表示新流程已备案',
-  `reported_status` VARCHAR(32) DEFAULT NULL COMMENT '本轮填报的转化进度，备案后同步至status',
-  `reported_actual_date` DATE DEFAULT NULL COMMENT '本轮填报的实际转化时间，备案后同步至actual_date',
-  `workflow_status` VARCHAR(32) NOT NULL DEFAULT 'DRAFT' COMMENT 'DRAFT/UNIT_REVIEW/RETURNED/HQ_RECORD/RECORDED',
-  `revision`      BIGINT      NOT NULL DEFAULT 0 COMMENT '乐观锁版本',
-  `evidence_json` LONGTEXT    DEFAULT NULL COMMENT '成效佐证材料JSON',
-  `history_json`  LONGTEXT    DEFAULT NULL COMMENT '提交、审核、备案及快照履历JSON',
   `color_status`  VARCHAR(16) NOT NULL DEFAULT 'BLUE',
   `intro_detail`  VARCHAR(2000) DEFAULT NULL,
   `duty_org`      VARCHAR(128) DEFAULT NULL,
@@ -835,10 +790,6 @@ INSERT INTO `sys_dict` (`dict_type`, `dict_code`, `dict_name`, `sort`) VALUES
  ('TRANSFORM_FORM', 'JOINT', '联合实施', 5),
  ('TRANSFORM_FORM', 'INVEST', '作价投资', 6),
  ('TRANSFORM_FORM', 'OTHER', '其他', 7),
- ('TRANSFORM_STATUS', 'NOT_STARTED', '未启动', 1),
- ('TRANSFORM_STATUS', 'NEGOTIATING', '洽谈中', 2),
- ('TRANSFORM_STATUS', 'SIGNED', '已签协议', 3),
- ('TRANSFORM_STATUS', 'DONE', '已完成', 4),
  ('PARTNER_TYPE', 'LEAD', '牵头', 1),
  ('PARTNER_TYPE', 'PARTNER', '参研', 2),
  ('PARTNER_TYPE', 'OUTSOURCE', '科研外协', 3),
@@ -859,11 +810,6 @@ INSERT INTO `sys_dict` (`dict_type`, `dict_code`, `dict_name`, `sort`) VALUES
  ('ACCEPT_LEVEL', 'COMPANY', '公司级验收', 2),
  ('ACCEPT_LEVEL', 'NATIONAL', '国家级验收', 3),
  ('ACCEPT_LEVEL', 'LOCAL', '属地主管部门验收', 4);
-
-UPDATE `sys_dict` SET `parent_code` = 'MODEL'
-WHERE `dict_type` = 'TRANSFORM_FORM' AND `dict_code` IN ('INSTALLED', 'UNINSTALLED');
-UPDATE `sys_dict` SET `parent_code` = 'MARKET'
-WHERE `dict_type` = 'TRANSFORM_FORM' AND `dict_code` IN ('TRANSFER', 'LICENSE', 'JOINT', 'INVEST', 'OTHER');
 
 -- 项目渠道
 INSERT INTO `proj_channel` (`channel_code`, `channel_name`, `level_code`, `channel_dept`, `channel_office`, `inner_dept`, `inner_office`, `flow_nodes`, `declare_material`, `filing_material`) VALUES

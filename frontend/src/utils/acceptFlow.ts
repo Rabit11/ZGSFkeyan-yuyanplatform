@@ -206,8 +206,12 @@ export function buildAcceptChecks(src: {
 function inferPhase(acc: any, projectStatus?: string): AcceptPhase {
   const accSt = String(acc?.status || '')
   const pst = String(projectStatus || '')
+  const node = String(acc?.currentNode || '')
   if (accSt === 'DONE' || ['COMPANY_ACCEPTED', 'GOV_ACCEPTED', 'FINISHED'].includes(pst)) return 'DONE'
-  if (accSt === 'APPLYING' && acc?.returned) return 'RETURN'
+  if (node === 'ACCEPT_APPLY') return 'RETURN'
+  if (node === 'ACCEPT_UNIT_REVIEW') return 'UNIT'
+  if (node === 'ACCEPT_CHIEF_REVIEW') return 'CHIEF'
+  if (node === 'ACCEPT_HQ_TECH' || node === 'ACCEPT_HQ_FINAL') return 'FINAL'
   if (accSt === 'ACCEPTING') {
     if (Number(acc?.expertReview) === 1 && !acc?.chiefDone) return 'CHIEF'
     return 'FINAL'
@@ -313,7 +317,7 @@ export function buildAcceptFlowOptsFromOverview(overview: any, extra?: { items?:
   const done = phase === 'DONE'
   const currentOrder =
     phase === 'DONE' ? 99
-      : phase === 'FINAL' ? 4
+      : phase === 'FINAL' ? (acc.currentNode === 'ACCEPT_HQ_FINAL' ? 5 : 4)
         : phase === 'CHIEF' ? 3
           : phase === 'UNIT' || phase === 'RETURN' ? 2
             : phase === 'APPLY' || allChecksPassed ? 1
@@ -339,12 +343,18 @@ export function buildAcceptFlowOptsFromOverview(overview: any, extra?: { items?:
     }))
   }
   nodes.push(
-    nodeOf('ACCEPT_HQ_FINAL', '终审', '总规管理团队', 'AUDIT', stOf(4, currentOrder, done), [hq], {
+    nodeOf('ACCEPT_HQ_TECH', '技术初审', '行业总部', 'AUDIT', stOf(4, currentOrder, done), [hq], {
+      desc: '总部技术口审查验收材料与结论建议',
+      actionLine: '行业总部 · 审批',
+      diamond: true,
+      opinion: done || currentOrder > 4 ? '同意' : undefined,
+    }),
+    nodeOf('ACCEPT_HQ_FINAL', '终审', '总规管理团队', 'AUDIT', stOf(5, currentOrder, done), [hq], {
       desc: '管理口终审，形成验收结论',
       actionLine: '总部管理团队 · 审批',
       opinion: done ? (acc.conclusion || '同意') : undefined,
     }),
-    nodeOf('ACCEPT_ARCHIVE', '指标办归档', '指标办', done ? 'CLOSED' : 'SYSTEM', stOf(5, currentOrder, done), [sys], {
+    nodeOf('ACCEPT_ARCHIVE', '指标办归档', '指标办', done ? 'CLOSED' : 'SYSTEM', stOf(6, currentOrder, done), [sys], {
       desc: '终审通过后归档本阶段材料，开启协作评价倒计时',
       actionLine: '系统 · 归档办结',
     }),
@@ -371,7 +381,7 @@ export function buildAcceptFlowOptsFromOverview(overview: any, extra?: { items?:
   const levelLabel = LEVEL_NAME[String(levelCode)]?.replace('材料', '') || String(levelCode || '—')
   const latestProcess = done
     ? `${levelCode === 'NATIONAL' ? '国家级' : levelCode === 'LOCAL' ? '属地' : '公司级'}验收申请（通过）`
-    : current ? `${current.title}（${current.statusLabel}）` : '待发起'
+    : acc.latestOpinion || (current ? `${current.title}（${current.statusLabel}）` : '待发起')
 
   const finishAt = acc.finishAt ? fmtDate(acc.finishAt) : done ? fmtDate(new Date().toISOString()) : undefined
   const groups = buildGroups(p.levelCode || levelCode, items, owner.label, done)
